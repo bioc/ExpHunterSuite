@@ -145,6 +145,18 @@ get_genes <- function(enrich_obj, showCategory = 30){
   return(unique(genes))
 }
 
+force_max_genes_enrobj <- function(enrich_obj, maxGenes = 200, showCategory = 30) {
+  plot_df <- get_plot_df(enrich_obj, showCategory)
+  for(i in seq_len(nrow(plot_df))) {
+    sub_df <- plot_df[1:i,]
+    unique_genes <- unique(sub_df$Gene)
+    if(length(unique_genes) == maxGenes) {
+      cat_ids <- plot_df[1:i, "categoryID"]
+      return(enrich_obj[enrich_obj$Description %in% cat_ids, asis=TRUE])
+    }
+  }
+}
+
 calc_width_clusters <- function(elements, multiplier = 0.3){
  width <- elements * multiplier
  return(width)
@@ -161,7 +173,7 @@ calc_width <- function(enrich_obj,
   character_width = 3, 
   legend_size = 1){
   enrich_obj_class <- class(enrich_obj)[1]
-  if(enrich_obj_class == "enrichResult"){
+  if(enrich_obj_class %in% c("enrichResult", "gseaResult")){
     longer_x_element <- length(get_genes(enrich_obj, showCategory))
   }else if(enrich_obj_class == "compareClusterResult"){
       longer_x_element <- length(get_clusters(enrich_obj))
@@ -185,7 +197,7 @@ calc_height <- function(enrich_obj,
   gene_character_size = 3, 
   category_name_size = 0.1){
   enrich_obj_class <- class(enrich_obj)[1]
-  if(enrich_obj_class == "enrichResult"){
+  if(enrich_obj_class  %in% c("enrichResult", "gseaResult")){
     plot_area_elements <- max(nchar(as.character(get_genes(enrich_obj, 
       showCategory = showCategory))))
   }else if(enrich_obj_class == "compareClusterResult"){
@@ -306,6 +318,18 @@ extract_legend <- function(a.gplot){
 }
 
 
+make_top_n_expression_table <- function(count_data, n=5) {
+  top_n_index <- order(rowSums(count_data), decreasing=TRUE)[1:n]
+  sample_totals <- colSums(count_data)
+  top_n_count <- count_data[top_n_index, ]
+  top_n_perc <- apply(top_n_count, 1, function(x) { 
+    round(x / sample_totals * 100, 3)
+  })
+  knitr::kable(t(top_n_perc))
+}
+
+
+
 #' Function to generate scatter plot for each gene in a hunter table
 #' and show logFC per package
 #' taking into account the variablity between them
@@ -313,8 +337,6 @@ extract_legend <- function(a.gplot){
 #' @param var_filter : variability threshold to show gene into this
 #' graph (low variability will be removed)
 #' @param title : plot title
-#' @param y_range : y limit to be applied. Only a number must be provided.
-#' NULL will not fix the axis
 #' @param top : plots only the top N items with more variance.
 #' NULL will not filter
 #' @param alpha : transparency of dots
@@ -326,81 +348,75 @@ extract_legend <- function(a.gplot){
 ht2logFCPlot <- function(ht,
   var_filter = 0.001, 
   title = "Filtered logFC", 
-  y_range = NULL, 
   top = 50, 
   alpha = 0.5){
-  gene_names <- rownames(ht)
-  target_cols <- which(grepl("logFC_",colnames(ht)))
-  aux_pack <- gsub("logFC_","",colnames(ht))
-  df_logfc <- data.frame(Gene = character(),
-              Package = character(),
-              logFC = numeric(),
-              stringsAsFactors = FALSE)
-  invisible(lapply(target_cols,function(j){
-    df_logfc <<- rbind(df_logfc,data.frame(Gene = gene_names,
-                        Package = rep(aux_pack[j],length(gene_names)),
-                        logFC = ht[,j],
-                        stringsAsFactors = FALSE))
-  }))
-  nas <- which(is.na(df_logfc$logFC))
-  if(length(nas) > 0) df_logfc <- df_logfc[-nas,]
-  # Calculate var
-  gene_names <- unique(df_logfc$Gene)
-  vars <- unlist(lapply(seq_along(gene_names),function(i){
-    stats::var(df_logfc$logFC[which(df_logfc$Gene == gene_names[i])])
-  }))
-  names(vars) <- gene_names
-  vars <- sort(vars, decreasing = TRUE)
-  vars <- vars[vars > var_filter]
-  # Check
-  if(length(vars) <= 0){
-    return(NULL)
-  }
-  aux_vars <- length(vars)
-  if(!is.null(top)){
-    if(top <= length(vars)) vars <- vars[seq(top)]
-  }
-  df_logfc$Gene <- factor(df_logfc$Gene, levels = names(vars))
-  df_logfc <- df_logfc[-which(is.na(df_logfc$Gene)),]
-  # Check special cases
-  if(!is.null(y_range)){
-    df_logfc$Type <- unlist(lapply(df_logfc$logFC,function(lgfc){
-      ifelse(abs(lgfc) <= abs(y_range),"Regular","Outlier")
-    }))
-    invisible(lapply(which(df_logfc$Type == "Outlier"),function(i){
-      if(df_logfc$logFC[i] < 0){
-        df_logfc$logFC[i] <<- -abs(y_range) 
-      }else{
-        df_logfc$logFC[i] <<- abs(y_range)
-      }
-    }))
-    df_logfc$Type <- factor(df_logfc$Type, levels = c("Regular","Outlier"))
-  }
 
-  # Plot
-  # Check special cases
-  if(!is.null(y_range)){
-    pp <- ggplot2::ggplot(df_logfc, ggplot2::aes_string(x = "Gene", 
-      y = "logFC", colour = "Package")) + 
-        ggplot2::geom_point(alpha = alpha, 
-          ggplot2::aes_string(shape = "Type")) +
-        ggplot2::scale_shape_manual(values=c(16, 17)) +
-        ggplot2::ylim(c(-abs(y_range),abs(y_range))) 
-  }else{
-    pp <- ggplot2::ggplot(df_logfc, ggplot2::aes_string(x = "Gene", 
-      y = "logFC", colour = "Package")) + 
+  logFC_columns <- grep("logFC_", colnames(ht), value=TRUE)
+  logFCs_tab <- data.frame(gene_name=row.names(ht), ht[,logFC_columns])
+  logFCs_tab <- logFCs_tab[! apply(logFCs_tab, 1, anyNA), ]
+  logFCs_tab$var <- apply(logFCs_tab[,-1], 1, var)
+  variable_genes <- logFCs_tab[logFCs_tab$var > var_filter, "gene_name"]
+  logFCs_tab <- logFCs_tab[variable_genes, ]
+  logFCs_tab <- logFCs_tab[order(logFCs_tab$var, decreasing=TRUE), ]
+  if(nrow(logFCs_tab) > top) logFCs_tab <- logFCs_tab[seq(top), ]  
+  logFCs_tab$gene_name <- factor(logFCs_tab$gene_name, 
+    levels = logFCs_tab$gene_name[order(logFCs_tab$var, decreasing=TRUE)])
+
+  if( length(variable_genes) == 0) return(paste("No genes have variance greater than", 
+                                                var_filter))
+
+  plot_tab <- reshape2::melt(logFCs_tab, id="gene_name", measure.vars=logFC_columns)
+  names(plot_tab) <- c("Gene", "Package", "logFC")
+  plot_tab$Package <- gsub("logFC_", "", plot_tab$Package)
+
+  pp <- ggplot2::ggplot(plot_tab, ggplot2::aes_string(x = "Gene", 
+      y = "logFC", colour = "Package", shape = "Package")) + 
         ggplot2::geom_point(alpha = alpha) 
-  }
   pp <- pp + 
-    ggplot2::xlab(paste0("Gene (",100 - round(aux_vars/length(
+    ggplot2::xlab(paste0("Gene (",100 - round(length(variable_genes)/length(
       unique(rownames(ht))),4)*100,
-    "% of genes has not significant variability)")) + 
+    "% of genes have lower variability than the threshold)")) + 
     ggplot2::ggtitle(title) + 
     ggplot2::theme_classic() + 
-    ggplot2::theme(axis.text.x=ggplot2::element_blank(),
-        axis.ticks.x=ggplot2::element_blank())
-  # Return
+    ggplot2::theme(text = ggplot2::element_text(size = 14),axis.text.x=ggplot2::element_blank(),
+        axis.ticks.x=ggplot2::element_blank()) +
+    ggplot2::geom_hline(yintercept = 0,linetype="dashed", color = "#636363")
   return(pp)
 }
 
 
+#' @importFrom ggplot2 aes_string aes ggplot geom_point scale_colour_gradientn guide_colorbar guides
+#' @importFrom ggrepel geom_text_repel 
+plot_odds_ratio <- function(cont_tables, OR_col = "Odds_ratio", pval_col = "Pvalue", y_col = "strategy", text_col = "TP") {
+  cont_tables <- as.data.frame(cont_tables)
+  idx <- order(cont_tables[,OR_col], decreasing = TRUE)
+  cont_tables[,y_col] <- factor(cont_tables[,y_col],
+                            levels=rev(unique(cont_tables[,y_col][idx])))
+ 
+
+  OR <- ggplot2::ggplot(cont_tables, ggplot2::aes_string(x = OR_col, y = y_col)) +
+  ggplot2::geom_point(ggplot2::aes_string(color = pval_col, size = "TP")) + 
+  ggrepel::geom_text_repel(ggplot2::aes(label = as.character(cont_tables[,text_col]))) +
+  ggplot2::scale_colour_gradientn(
+    colours = c("red", "white", "blue"),
+    values = c(0, 0.05, 1),
+    name = pval_col, 
+    guide=ggplot2::guide_colorbar(reverse=TRUE))+
+  ggplot2::guides(size = FALSE)
+  return(OR)
+}
+
+get_pie_clusters <- function(enrich_DF, enrichplot){
+  showed_categories <- enrichplot$data$name
+  all_categories <- enrich_DF@compareClusterResult$Description
+  plotted_clusters <- enrich_DF@compareClusterResult[all_categories %in% showed_categories,"Cluster"]
+  return(unique(plotted_clusters))
+}
+
+#' @importFrom enrichplot cnetplot
+clnetplot <- function(compareCluster, ...) {
+  mod_enrich_obj <- compareCluster
+  mod_enrich_obj@compareClusterResult$geneID <- as.character(mod_enrich_obj@compareClusterResult$Cluster)
+  clnet_plot <- enrichplot::cnetplot(mod_enrich_obj, ...) 
+  return(clnet_plot)
+}

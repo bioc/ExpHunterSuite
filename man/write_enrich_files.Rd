@@ -4,12 +4,12 @@
 \alias{write_enrich_files}
 \title{Write enrichment files related to functional_hunter results list}
 \usage{
-write_enrich_files(func_results, output_files = getwd())
+write_enrich_files(func_results, output_path = getwd())
 }
 \arguments{
 \item{func_results}{functional enrichment results}
 
-\item{output_files}{output folder path}
+\item{output_path}{output folder path}
 }
 \value{
 void

@@ -52,15 +52,17 @@ option_list <- list(
       " per gene per sample must be higher than this value to count towards",
       " the --minlibraries value. Default=%default. 0 = No filtering")),
   optparse::make_option(c("--count_var_quantile"), type="double", default=0, 
-    help=paste0("Proportion (0-1 value) of low variance genes to filter out. Default=%default")),
+    help=paste0("Proportion (0-1 value) of low variance genes to filter out. ",
+      "Default=%default")),
   optparse::make_option(c("-l", "--minlibraries"), type="integer", default=2,
     help=paste0("For each gene, the minimum number of samples that must have",
       " more than --reads. Default=%default")),
   optparse::make_option(c("-F", "--filter_type"), type="character", 
     default="separate",
     help=paste0("Should filtering be done taking into account treatment and",
-      " control samples separately (value=separate), or accross all samples",
-      " (global). Default=%default")),
+      " control samples separately (value=separate), possible combinations of factors ",
+      "(combined), or across all factors (global). In the case of combined factors, ",
+      "the factors should be specified using \"combined:factor1,factor2,...\". Default=%default")),
   optparse::make_option(c("-o", "--output_files"), type="character", 
     default="hunter_DE_results",
     help="Output path. Default=%default"),
@@ -156,13 +158,18 @@ option_list <- list(
   optparse::make_option(c("--WGCNA_minKMEtoStay"), type="double", default=0.5, 
     help=paste0("Minimun module membership of a gene to be kept in module.",
       " Default=%default")),
+  optparse::make_option("--WGCNA_corType", type="character", default="pearson",
+    help="Set the correlation method to perform WGCNA_algorithm. 'pearson' and 'bicor' are the allowed options"),
   optparse::make_option(c("--multifactorial"), type="character", default="", 
-        help=paste0("Currently only a 2x2 factorial design is possible for interactions, and 2xn for group effects. The required contrast must be specified in the following manner: ",
+        help=paste0("Currently only a 2x2 or factorial design is possible for interactions, and 2xn for group effects. Nested designs can",
+          "also be specified (i.e. Group-specific condition effects, individuals nested within groups) The required contrast must be specified in the following manner: ",
           "FactorA,FactorB:contrast. Contrast can be either",
       "\"interaction,baseA,baseB\" if we are interested in the interaction between the two factors, where baseA and baseB should be the base levels for each factor. ",
       "FC would represent [numA_numB - baseA_numB] - [numA_baseB - baseA_baseB] with numA/B representing the non-base levels for the factorA.",
-      "Alternatively, Contrast can be specificed in the form \"effect,baseA,groupB\", where the baseA should be the level in FactorA that should be used as the base for FC calculation,",
-      "and groupB represents the level in Factor B that is the group we are looking for the change in. For effect, FactorB can have more than 2 groups, allowing 2xn designs"))
+      "Alternatively, Contrast can be specificed in the form \"effect,baseA,groupB\", where the baseA should be the level in FactorA that should be used as the base for FC calculation, ",
+      "and groupB represents the level in Factor B that is the group we are looking for the change in. For effect, FactorB can have more than 2 groups, allowing 2xn designs. ",
+      "Finally, if nested is selected, we can perform the same comparisons using a nested design with: \"nested_int,Ctrl,groupA\" for interaction, ",
+      "\"nested_effect,Ctrl,groupA\" or \"nested_effect,Ctrl,groupB\" for a group. "))
  )
 opt <- optparse::parse_args(optparse::OptionParser(option_list=option_list))
 #############################################################################
@@ -251,6 +258,7 @@ final_results <- main_degenes_Hunter(
   WGCNA_minCoreKME=opt$WGCNA_minCoreKME,
   WGCNA_minCoreKMESize=opt$WGCNA_minCoreKMESize,
   WGCNA_minKMEtoStay = opt$WGCNA_minKMEtoStay,
+  WGCNA_corType = opt$WGCNA_corType,
   multifactorial = opt$multifactorial
 )
 

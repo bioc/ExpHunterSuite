@@ -1,6 +1,6 @@
 Package: ExpHunterSuite
 Title: Package For The Comprehensive Analysis Of Transcriptomic Data
-Version: 1.6.1
+Version: 1.6.2
 Authors@R: 
     c(person(given = "James",
            family = "Perkins",
@@ -53,7 +53,7 @@ License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.1.1
+RoxygenNote: 7.2.3
 biocViews: GeneExpressionWorkflow
 Suggests: 
     optparse,
@@ -62,7 +62,8 @@ Suggests:
     reshape2,
     TCC,
     org.Hs.eg.db,
-    org.Mm.eg.db
+    org.Mm.eg.db,
+    testthat (>= 3.0.0)
 VignetteBuilder: knitr
 Imports: 
     ReactomePA,
@@ -90,7 +91,6 @@ Imports:
     magrittr,
     SummarizedExperiment,
     miRBaseConverter,
-    pbapply,
     grDevices,
     graphics,
     utils,
@@ -100,4 +100,12 @@ Imports:
     rlang,
     plyr,
     tidyr,
+    GO.db,
+    Matrix,
+    fastcluster,
+    DOSE,
+    heatmaply,
+    EnhancedVolcano, 
+    ggrepel,
     clusterProfiler
+Config/testthat/edition: 3

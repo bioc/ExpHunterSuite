@@ -32,6 +32,7 @@
 #' @param WGCNA_minCoreKME see WGCNA package
 #' @param WGCNA_minCoreKMESize see WGCNA package
 #' @param WGCNA_minKMEtoStay see WGCNA package
+#' @param WGCNA_corType see WGCNA package
 #' @param multifactorial specify interaction/effect when multifactorial design
 #' @return expression analysis result object with studies performed
 #' @keywords method
@@ -71,6 +72,7 @@ main_degenes_Hunter <- function(
     WGCNA_minCoreKME = 0.5,
     WGCNA_minCoreKMESize = NULL,
     WGCNA_minKMEtoStay = 0.2,
+    WGCNA_corType = "pearson",
     multifactorial = ""
   ){
     modified_input_args <- check_input_main_degenes_Hunter(raw, 
@@ -87,7 +89,8 @@ main_degenes_Hunter <- function(
       'minpack_common' = minpack_common,
       'p_val_cutoff' = p_val_cutoff,
       'lfc' = lfc,
-      'modules' = modules
+      'modules' = modules,
+      'active_modules' = active_modules
     )
 
     ############################################################
@@ -103,7 +106,7 @@ main_degenes_Hunter <- function(
     design_vector <- c(rep("C", replicatesC), rep("T", replicatesT))
     sample_groups <- data.frame(class = design_vector, 
                                 name = c(index_control_cols, 
-                                         index_treatmn_cols))   
+                                         index_treatmn_cols))
     # Check if there are enough replicates for specified method
     if((replicatesC < 2) | (replicatesT < 2)) 
        stop(paste0('At least two replicates per class (i.e. treatment and',
@@ -129,7 +132,7 @@ main_degenes_Hunter <- function(
     model_formula_text <- prepare_model_text(model_variables, 
                                              multifactorial)
    
-    if(multifactorial != ""){
+    if(grepl(":(interaction|effect)", multifactorial)){
       target <- prepare_target_for_multifactorial(target, multifactorial)
     }
     # Prepare count table for analysis
@@ -137,8 +140,10 @@ main_degenes_Hunter <- function(
     raw <- raw[c(index_control_cols,index_treatmn_cols)]
     raw[is.na(raw)] <- 0 # Substitute NA values
 
-    raw_filter <- filter_count(reads, minlibraries, raw, filter_type, 
-                               index_control_cols, index_treatmn_cols)
+    filtered_data <- filter_count(reads, minlibraries, raw, filter_type, 
+                               index_control_cols, index_treatmn_cols, target)
+    raw_filter <- filtered_data[["raw"]]
+    cpm_table <- filtered_data[["cpm_table"]]
 
     var_filter <- filter_by_variance(raw_filter, 
                                      q_filter = count_var_quantile, 
@@ -155,7 +160,7 @@ main_degenes_Hunter <- function(
                      replicatesT, raw_filter, p_val_cutoff, target, 
                      model_formula_text, external_DEA_data, 
                      multifactorial)
-#q()
+
     #################################################################
     ##                       CORRELATION ANALYSIS                   ##
     ##################################################################
@@ -181,7 +186,7 @@ main_degenes_Hunter <- function(
         target_string_factors, WGCNA_memory, WGCNA_deepsplit, 
         WGCNA_detectcutHeight, WGCNA_mergecutHeight, WGCNA_min_genes_cluster, 
         WGCNA_blockwiseNetworkType, WGCNA_blockwiseTOMType, WGCNA_minCoreKME, 
-        WGCNA_minCoreKMESize, WGCNA_minKMEtoStay)
+        WGCNA_minCoreKMESize, WGCNA_minKMEtoStay, corType = WGCNA_corType)
 
       if(length(combinations_WGCNA[['WGCNA_all']]) == 1) {
         warning("Something went wrong with WGCNA on the full dataset")
@@ -203,14 +208,34 @@ main_degenes_Hunter <- function(
     #################################################################
     ##                    BUILD MAIN RESULT TABLE                  ##
     #################################################################
+
     DE_all_genes <- unite_DEG_pack_results(exp_results, p_val_cutoff, 
                                            lfc, minpack_common)
-    
+    mean_cpm <- rowMeans(raw_filter)
+    DE_all_genes <- merge(DE_all_genes, mean_cpm, by=0, sort=FALSE)
+    names(DE_all_genes)[names(DE_all_genes) == "y"] <- "mean_expression_cpm"
+    DE_all_genes <- transform(DE_all_genes, row.names=Row.names, Row.names=NULL)
+
     if(grepl("W", modules)) { # Check WGCNA was run and returned proper results
       DE_all_genes <- merge(by.x=0, by.y="ENSEMBL_ID", x= DE_all_genes, 
           y =combinations_WGCNA[['WGCNA_all']][['gene_cluster_info']])
       rownames(DE_all_genes) <- DE_all_genes$Row.names
       DE_all_genes$Row.names <- NULL
+    }
+
+    correlation_metrics <- NULL
+    if(grepl("P", modules)) { # CASE P: PCIT, TODO: RESTORE FUNCTION, PEDRO 
+      # TODO : This is not working, variables "DESeq2_counts" 
+      # are not being generated inside this function
+      all_data_normalized <- exp_results[['all_data_normalized']]$DESeq2
+      raw <- raw[c(index_control_cols,index_treatmn_cols)]
+      correlation_metrics <- analysis_diff_correlation(
+        DE_all_genes, 
+        all_data_normalized, 
+        all_data_normalized[index_control_cols], 
+        all_data_normalized[index_treatmn_cols], 
+        PCIT_filter=FALSE) # The analysis is very very slow, so we disable it
+      DE_all_genes <- transform(merge(DE_all_genes, correlation_metrics, by.x=0, by.y=0), row.names=Row.names, Row.names=NULL)
     }
 
     if(grepl("X", modules)) { #results_diffcoexp
@@ -219,12 +244,12 @@ main_degenes_Hunter <- function(
          results_diffcoexp$DCGs$Gene[results_diffcoexp$DCGs$q < 1]
       DE_all_genes$DCL <- aux %in% results_diffcoexp$DCLs$Gene.1 | 
          aux %in% results_diffcoexp$DCLs$Gene.2
-    }
-    
+    }    
     # Add the filtered genes back
     DE_all_genes <- add_filtered_genes(DE_all_genes, raw)
 
     final_results <- list()
+    final_results[['cpm_table']] <- cpm_table
     final_results[['raw_filter']] <- raw_filter
     final_results[['sample_groups']] <- sample_groups
     final_results[['DE_all_genes']] <- DE_all_genes
@@ -268,18 +293,18 @@ check_input_main_degenes_Hunter <- function(raw,
     }
 
     if (!is.null(external_DEA_data)) {
-      warning("External DEA dataframe given.")
+      message("External DEA dataframe given.")
       if(is.null(target)){
         warning(paste0("External DEA dataframe given but no target",
-          " - creating a blank one"))
+          " - creating a dummy one"))
         target <- data.frame(samples=c("case_dummy_1", "case_dummy_2", 
                                        "control_dummy_1", "control_dummy2"), 
                              treat=c("Treat","Treat", "Ctrl", "Ctrl"))
       }
       if(is.null(raw)) {
         warning(paste0("External DEA dataframe given but no count data",
-          " - creating a blank one"))
-        raw <- as.data.frame(matrix(1, 
+          " - creating a dummy one"))
+        raw <- as.data.frame(matrix(sample(1:100, nrow(external_DEA_data)*nrow(target),replace=TRUE), 
                                     nrow=nrow(external_DEA_data), 
                                     ncol=nrow(target), 
                                   dimnames = list(row.names(external_DEA_data), 
@@ -302,24 +327,15 @@ check_input_main_degenes_Hunter <- function(raw,
         "via --model_variables")
     }
 
-    active_modules <- nchar(modules)
-    if(grepl("W", modules)) {
-      active_modules <- active_modules - 1
-    }
-    if(grepl("P", modules)) {
-      if (WGCNA_all == FALSE) {
-        message(paste0("WGCNA only for controls an treatments is not",
-          " activated (--WGCNA_all option) and is needed for PCIT analysis.",
-          " Disabling PCIT execution"))
-        modules <- gsub("P", "", modules)
-      } else {
-        active_modules <- active_modules - 1
-      }
-    }
-    if(grepl("X", modules)) {
-      active_modules <- active_modules - 1
+    if(grepl('P', modules) && !grepl('D', modules)){
+      modules <- paste0(modules, 'D')
     }
 
+    active_modules <- nchar(modules)
+    user_modules <- unlist(strsplit(modules, '')) # TODO. Maybe use this variable for checks perfomed before
+    active_modules <- active_modules - sum(grepl("[WPX]", user_modules)) # Remove from module count modules that are not involved in differential expresion
+    if(sum(target$treat == "Ctrl") < 3 | sum(target$treat == "Treat") < 3)
+          active_modules <- active_modules - sum(grepl("[LN]", user_modules))
     if(minpack_common > active_modules){
       minpack_common <- active_modules
       warning(paste0("The number of active modules is lower than the thresold",
@@ -353,15 +369,17 @@ filter_count <- function(reads,
                          raw, 
                          filter_type, 
                          index_control_cols, 
-                         index_treatmn_cols){
+                         index_treatmn_cols,
+                         target){
     # Prepare filtered set
+    cpm_table <- edgeR::cpm(raw)
     if(reads != 0){
       if (filter_type == "separate") {
         # genes with cpm greater than --reads value for 
         # at least --minlibrariess samples for either case or control samples
-        to_keep_control <- rowSums(edgeR::cpm(raw[index_control_cols]) > 
+        to_keep_control <- rowSums(cpm_table[, index_control_cols] > 
                                 reads) >= minlibraries
-        to_keep_treatment <- rowSums(edgeR::cpm(raw[index_treatmn_cols]) >
+        to_keep_treatment <- rowSums(cpm_table[, index_treatmn_cols] >
                                   reads) >= minlibraries
         # Keep if at least minlibraries in either of them
         keep_cpm <- to_keep_control | to_keep_treatment 
@@ -369,14 +387,26 @@ filter_count <- function(reads,
       } else if (filter_type == "global") {
         # genes with cpm greater than --reads value for
         # at least --minlibrariess samples
-        keep_cpm <- rowSums(edgeR::cpm(raw) > reads) >= minlibraries 
+        keep_cpm <- rowSums(cpm_table > reads) >= minlibraries 
+        raw <- raw[keep_cpm,] # Filter out count data frame
+      } else if (grepl("^combined", filter_type) == TRUE) {
+        split_filter <- strsplit(filter_type, ":")[[1]]
+        filt_factors <- strsplit(split_filter[2], ",")[[1]]
+        if(! all(filt_factors %in% colnames(target)))
+          stop("Filter factors not found in target")
+        combs_list <- split(target, target[,filt_factors])
+        samples_per_combo <- lapply(combs_list, function(x) as.vector(x$sample))
+        cpm_tab_per_combo <- sapply(samples_per_combo, function(x) cpm_table[, x])
+        combos_passing_filter <- sapply(cpm_tab_per_combo, 
+          function(x) rowSums(x > reads) > minlibraries)
+        keep_cpm <- apply(combos_passing_filter, 1, any)
         raw <- raw[keep_cpm,] # Filter out count data frame
       } else {
         warning("Unrecognized minimum read filter type. No filter will be used")
         raw <- raw
       }
     }
-    return(raw)
+    return(list(raw=raw, cpm_table=cpm_table))
 }
 
 #' @importFrom matrixStats rowVars

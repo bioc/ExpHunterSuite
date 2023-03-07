@@ -167,10 +167,11 @@ perform_expression_analysis <- function(modules,
       package_objects[['externalDEA']] <- results[[3]]
 
       # Result Plot Visualization
+
       if (!is.null(all_counts_for_plotting[['externalDEA']])){
-        all_pvalue_names   <- c(all_pvalue_names, names(external_DEA_data)[1])
-        all_LFC_names      <- c(all_LFC_names, names(external_DEA_data)[2])
-        all_FDR_names      <- c(all_FDR_names, names(external_DEA_data)[3])
+        all_pvalue_names   <- c(all_pvalue_names, "P.Value")
+        all_LFC_names      <- c(all_LFC_names, "logFC")
+        all_FDR_names      <- c(all_FDR_names, "adj.P.Val")
         final_pvalue_names <- c(final_pvalue_names, 'pvalue_externalDEA')
         final_logFC_names  <- c(final_logFC_names, 'logFC_externalDEA')
         final_FDR_names    <- c(final_FDR_names, 'FDR_externalDEA')
@@ -202,11 +203,41 @@ perform_expression_analysis <- function(modules,
 #' @importFrom stats formula
 analysis_DESeq2 <- function(data, p_val_cutoff, target, model_formula_text,
   multifactorial){
+    if(grepl(":nested", multifactorial)){
+      mf_text <- split_mf_text(multifactorial)
+      factor_table <- table(target[, mf_text$mf_factorA])
+      ordered_factors <- names(factor_table)[order(factor_table, decreasing=TRUE)]
+      # Following necessary to perform design matrix trick in DESeq2 Vignette:
+      # Group-specific condition effects, individuals nested within groups
+      ordering_factor <- ordered(target[, mf_text$mf_factorA], 
+        levels=ordered_factors)
+      # Reorder table by group then by patient (paired samples, i.e. factor B)
+      target <- target[order(ordering_factor,  target[, mf_text$mf_factorB]), ]
+      bigger_grouping <- target[, mf_text$mf_factorA] == ordered_factors[1]
+      smaller_grouping <- target[, mf_text$mf_factorA] == ordered_factors[2]
+      target[smaller_grouping, mf_text$mf_factorB] <- 
+                  target[bigger_grouping, mf_text$mf_factorB][seq(1, sum(smaller_grouping))]
+      target <- target[order(as.integer(row.names(target))), ]
 
-    dds <- DESeq2::DESeqDataSetFromMatrix(countData = data,
+      model_formula_text <- paste0("~ ", mf_text$mf_factorA, " + ", 
+                         mf_text$mf_factorA, ":", mf_text$mf_factorB, " + ", mf_text$mf_factorA,":treat")
+      m1 <- model.matrix(stats::formula(model_formula_text), target)
+
+      all.zero <- apply(m1, 2, function(x) all(x==0))
+      idx <- which(all.zero);  
+      m1 <- m1[,-idx]
+  
+      dds <- DESeq2::DESeqDataSetFromMatrix(countData = data,
+            colData = target,
+            design = ~1)
+      dds <- DESeq2::DESeq(dds, full=m1)
+
+    } else {
+      dds <- DESeq2::DESeqDataSetFromMatrix(countData = data,
                                   colData = target,
                                   design = stats::formula(model_formula_text))
-    dds <- DESeq2::DESeq(dds)
+      dds <- DESeq2::DESeq(dds)
+    }
 
     if(multifactorial != "") {
       mf_options <- get_mf_DE_options(package_name="DESeq2", package_object=dds,
@@ -350,7 +381,16 @@ get_mf_DE_options <- function(
           levels(target[, mf_text[["mf_factorA"]]])[2],
            mf_text[["mf_varA"]]
         ))
-    }
+    } else if (mf_text[["mf_contrast"]] == "nested_int") {
+        target_factor <- unique(target[,mf_text[["mf_factorA"]]])
+        mf_opt <- list(contrast=list(paste0(mf_text[["mf_factorA"]], mf_text[["mf_varB"]], ".treatTreat"), 
+        paste0(mf_text[["mf_factorA"]], 
+          target_factor[! target_factor %in% mf_text[["mf_varB"]]], ".treatTreat" ))
+        )
+    } else if (mf_text[["mf_contrast"]] == "nested_effect") {
+      target_factor <- unique(target[,mf_text[["mf_factorA"]]])
+      mf_opt <- list(name=paste0(mf_text[["mf_factorA"]],  mf_text[["mf_varB"]], ".treatTreat" ))
+    } 
   } else if (package_name %in% c("edgeR","limma")) { 
     if(mf_text[["mf_contrast"]] == "interaction") {
       mf_opt <- list(name=colnames(package_object)[4])
@@ -359,6 +399,8 @@ get_mf_DE_options <- function(
           mf_text[["mf_factorA"]],
           levels(target[, mf_text[["mf_factorA"]]])[2]
       ))
+    } else if (mf_text[["mf_contrast"]] == "nested") {
+      stop("Nested experiment design cannot be used with package other than DESeq2")
     }
   }
   if(! exists("mf_opt")) stop("Check multifactorial arguments flag valid")

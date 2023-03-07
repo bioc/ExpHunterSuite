@@ -1,5 +1,5 @@
 ---
-author: "Fernando Moreno Jabato"
+title: "ExpHunterSuite: Differential Expression Report"
 output:
   html_document:
     toc: true
@@ -29,8 +29,6 @@ output:
   }   
 </style>
 
-# **DEgenes Hunter - Differential expression analysis report**
-
 ## **Details of the input data**
 
 ### **First group of samples (to be referred to as control in the rest of the report)**
@@ -58,7 +56,7 @@ Here we show scatterplots comparing expression levels for all genes between the 
 
 These plots will only be produced when the total number of samples to compare within a group is less than or equal to 10.
 
-```{r corr_plot_control, echo = FALSE, fig.height=12, fig.width=12, eval=length(index_control_cols) <= 10, results='asis'}
+```{r corr_plot_control, echo = FALSE, fig.height=12, fig.width=12, eval=length(index_control_cols) <= 10, results='asis', warning = FALSE}
 
 cat("### **Correlation between control samples:**
 Replicates within the same group tend to have Pearson correlation coefficients >= 0.96. Lower values may indicate problems with the samples.
@@ -68,7 +66,7 @@ PerformanceAnalytics::chart.Correlation(raw_filter[index_control_cols], histogra
 
 ```
 
-```{r corr_plot_treatment, echo = FALSE, fig.height=12, fig.width=12, eval=length(index_treatmn_cols) <= 10, results='asis'}
+```{r corr_plot_treatment, echo = FALSE, fig.height=12, fig.width=12, eval=length(index_treatmn_cols) <= 10, results='asis', warning = FALSE}
 
 cat("### **Correlation between treatment samples:**
 Replicates within the same group tend to have Pearson correlation coefficients >= 0.96. Lower values may indicate problems with the samples.
@@ -80,7 +78,7 @@ PerformanceAnalytics::chart.Correlation(raw_filter[index_treatmn_cols], histogra
 ```
 
 
-```{r corr_plot_all , echo = FALSE, fig.height=12, fig.width=12, eval=length(index_control_cols) + length(index_treatmn_cols) <= 10, results='asis'}
+```{r corr_plot_all , echo = FALSE, fig.height=12, fig.width=12, eval=length(index_control_cols) + length(index_treatmn_cols) <= 10, results='asis', warning = FALSE}
 
 
 cat("### **Correlation between samples: All vs all replicates**
@@ -113,7 +111,12 @@ coldata_df <- data.frame(cond = design_vector,
                            row.names = colnames(raw_filter), stringsAsFactors=TRUE)
 
 dds <- DESeq2::DESeqDataSetFromMatrix(countData = raw_filter, colData = coldata_df, design = ~ cond)
-rld <- DESeq2::rlog(dds, blind=FALSE)
+
+if(nrow(raw_filter) < 2000) {
+  rld <- DESeq2::rlog(dds, blind=TRUE)
+} else {
+	rld <- DESeq2::vst(dds)
+}
 
 pcaData <- DESeq2::plotPCA(rld, intgroup=c("cond"), returnData = TRUE)
 percentVar <- round(100 * attr(pcaData, "percentVar"))
@@ -146,35 +149,48 @@ The samples are shown in the 2D plane and distributed by their first two princip
 
 These boxplots show the distributions of count data before and after normalization (shown for normalization method `r names(all_data_normalized)[1]`):
 
+Representation of cpm unfiltered data:
+```{r density_distribution_cpm, echo = FALSE, warning=FALSE}
+cpm_no_zeros <- cpm_table[! rowSums(cpm_table) == 0, ]
+log2cpm <- log2(cpm_no_zeros + 1)
+cpm_long <- reshape2::melt(log2cpm, measure.vars=colnames(log2cpm))
+
+ggplot2::ggplot(cpm_long, ggplot2::aes(x = value, colour=Var2)) + ggplot2::geom_density() +
+ggplot2::xlab(expression(log[2](cpm + 1))) +
+ggplot2::geom_vline(xintercept = log2( opt$reads + 1))
+
+```
+
+
 Before normalization:
 
-```{r box_before_norm, echo = FALSE, warning=FALSE}
-max_mean <- max(apply(raw_filter, MARGIN = 2, function(x) mean(x, na.rm=TRUE)))
-to_plot <- boxplot(raw_filter,
-					ylim=c(0, max_mean*10), 
-					cex.lab=0.8, 
-					cex.axis=0.8, 
-					notch=TRUE, 
-					col=(c(rep("gold",replicatesC),rep("darkgreen",replicatesT))))
+```{r density_distribution_raw, echo = FALSE, warning=FALSE}
+log2raw_counts <- log2(raw_filter + 1)
+raw_long <- reshape2::melt(log2raw_counts, measure.vars=colnames(log2raw_counts))
+
+ggplot2::ggplot(raw_long, ggplot2::aes(x = value, colour=variable)) + ggplot2::geom_density() +
+ggplot2::xlab(expression(log[2](count + 1)))
+
 ```
+
 
 After normalization:
 
-```{r box_after_norm, echo = FALSE, warning=FALSE}
-max_mean <- max(apply(all_data_normalized[[1]], MARGIN = 2, function(x) mean(x, na.rm=TRUE)))
-to_plot <- boxplot(all_data_normalized[[1]],  
-					ylim=c(0, max_mean*10), 
-					cex.lab=0.8, 
-					cex.axis=0.8, 
-					notch=TRUE, 
-					col=(c(rep("gold",replicatesC),rep("darkgreen",replicatesT))))
+```{r density_distribution_norm, echo = FALSE, warning=FALSE}
+log2norm_counts <- log2(all_data_normalized[[1]] + 1)
+norm_long <- reshape2::melt(log2norm_counts, measure.vars=colnames(log2norm_counts))
+
+ggplot2::ggplot(norm_long, ggplot2::aes(x = value, colour=variable)) + ggplot2::geom_density() +
+ggplot2::xlab(expression(log[2](count + 1)))
+
 ```
+
 
 ## Gene counts variance distribution
 
 Variance of gene counts across samples are represented. Genes with lower variance than selected threshold (dashed grey line) were filtered out. 
 
-```{r variance_dist, echo = FALSE, warning = FALSE, message = FALSE}
+```{r variance_dist, echo = FALSE, eval=!grepl("F", opt$modules), warning = FALSE, message = FALSE}
 
 gene_count_var <- data.frame(variance =var_filter[["variance_dis"]])
 
@@ -205,6 +221,10 @@ All counts were normalizated by DESeq2 algorithm. This count were scaled by log1
 
 ```
 
+```{r top_n_expression, results='asis', echo=FALSE, warning=FALSE, message=FALSE}
+	cat("\n\n### **Percentages of reads per sample mapping to the most highly expressed genes **\n\n")
+	make_top_n_expression_table(count_data=raw_filter, n=5)
+```
 
 ## **DEgenes Hunter results**
 
@@ -269,16 +289,20 @@ limma::vennDiagram(intersections, circle.col = grDevices::rainbow(length(sets)))
 var_thr <- 0.01
 ```
 
-```{r logFCplots, echo = FALSE, results = "asis"}
-pp <- ht2logFCPlot(DE_all_genes, var_filter = var_thr, title = paste0("(variance threshold >= ",var_thr,")"))
-	cat(paste0("\nThis graph shows logFC calculated (y-axis) for each package (points) and gene (x-axis). Only genes with variability over ", var_thr, " will be plotted. This representation allows to user to observe the behaviour of each DE package and detect when one of them has atypical results.\n"))
-	plot(pp)
+```{r logFCplots, echo = FALSE, eval=(!grepl("F", opt$modules) && sum(grepl("logFC_", colnames(DE_all_genes))) > 1), results = "asis"}
+
+  cat(paste0("\n### **Plot showing variability between different DEG detection methods in terms of logFC calculation**"))
+  cat(paste0("\nThis graph shows logFC calculated (y-axis) for each package (points) and gene (x-axis). Only genes with variability over ", var_thr, " will be plotted. This representation allows to user to observe the behaviour of each DE package and see if one of them has atypical results.\n"))
+  cat(paste0("\nIf there are no genes showing sufficient variance in estimated logFC accross methods, no plot will be produced and a warning message will be given.\n\n"))
+
+  pp <- ht2logFCPlot(DE_all_genes, var_filter = var_thr, title = paste0("(variance threshold >= ",var_thr,")"))
+	print(pp)
 ```
-a
+
 
 ### **FDR gene-wise benchmarking**
 
-Benchmark of false positive calling (Image extracted from {"padj\_prevalent\_DEGs.pdf"} file):
+Benchmark of false positive calling:
 
 Boxplot of FDR values among all genes with an FDR <= 0.05 in at least one DE detection package
 
@@ -307,6 +331,42 @@ p_seguros_Int <- ggplot2::ggplot(df_melted_FDR, ggplot2::aes(x = package_name, y
 plot(p_seguros_Int)
 }
 ```
+
+### **FDR Volcano Plot showing log 2 fold change vs. FDR
+The red horizontal line represents the chosen FDR threshold of `opt$p_val_cutoff`. The black lines represent
+other values.
+
+```{r FDR_volcano, echo = FALSE, warning=FALSE}
+
+evp <- EnhancedVolcano::EnhancedVolcano(DE_all_genes, 
+	lab=rownames(DE_all_genes),  
+	x="mean_logFCs", 
+	y="combined_FDR",     
+	boxedLabels = TRUE,     
+	drawConnectors = TRUE,     
+	pCutoff = opt$p_val_cutoff,     
+	FCcutoff = opt$lfc,  
+	cutoffLineType = 3,
+  ylab = bquote(~-Log[10] ~ italic(FDR)),
+  title = NULL,
+  subtitle = NULL,
+  legendLabels = c("NS", expression(Log[2] ~ FC), "FDR", expression(FDR ~ and
+         ~ log[2] ~ FC)),
+  caption=NULL,
+  legendPosition = 'right',
+) 
+
+fc_thresholds <- c(0.01, 0.05,0.1, 0.2)
+all_thresholds <- unique(c(opt$p_val_cutoff, fc_thresholds))
+mean_wt = data.frame(FDR = all_thresholds, nlFDR = -log10(all_thresholds))
+
+evp <- evp +
+ggplot2::geom_hline(data = mean_wt, ggplot2::aes(yintercept = nlFDR, linetype=factor(FDR)) , color = c("red", rep("black", times=nrow(mean_wt)-1)))
+plot(evp)
+
+```
+
+
 
 The complete results of the DEgenes Hunter differential expression analysis can be found in the "hunter\_results\_table.txt" file in the Common_results folder
 
@@ -538,7 +598,7 @@ cat("### Module Membership distribution\n"
   			ggplot2::scale_fill_gradient(low = "#9FCBFC", high =  "#0067DC")
 	gg
 
-````
+```
 
 
 
@@ -656,7 +716,7 @@ ggplot2::ggplot(DCG_plot_df, ggplot2::aes(x=DCG_ratio, y=mean_logFCs, colour=DCG
 ```
 
 
-```{r PCIT_conditional_block_head, eval=grepl("P", opt$modules), echo=FALSE, results='asis'}
+```{r PCIT_conditional_block_head, eval=!is.null(DE_all_genes[['rif1']]), echo=FALSE, results='asis'}
 cat("### **PCIT Results**
 
 Plots of some of the various metrics computed in the PCIT implementation. Better explanation and more plots to be added at a later date:"
@@ -664,17 +724,17 @@ Plots of some of the various metrics computed in the PCIT implementation. Better
 )
 ```
 
-```{r PCIT_conditional_block_plot, eval=grepl("P", opt$modules), echo=FALSE, warning=FALSE, message=FALSE}
-    ggplot2::ggplot(metrics_pcit, ggplot2::aes(x=ctrl_cn)) +
+```{r PCIT_conditional_block_plot, eval=!is.null(DE_all_genes[['rif1']]), echo=FALSE, warning=FALSE, message=FALSE}
+    ggplot2::ggplot(DE_all_genes, ggplot2::aes(x=ctrl_cn)) +
               ggplot2::geom_density()
-    ggplot2::ggplot(metrics_pcit, ggplot2::aes(x=treat_cn)) +
+    ggplot2::ggplot(DE_all_genes, ggplot2::aes(x=treat_cn)) +
               ggplot2::geom_density()
-    ggplot2::ggplot(metrics_pcit, ggplot2::aes(x=diff_cn)) +
+    ggplot2::ggplot(DE_all_genes, ggplot2::aes(x=diff_cn)) +
             ggplot2::geom_density()
-    ggplot2::ggplot(metrics_pcit, ggplot2::aes(x=diffK)) +
+    ggplot2::ggplot(DE_all_genes, ggplot2::aes(x=diffK)) +
             ggplot2::geom_density()
 
-    av_de <- ggplot2::ggplot(metrics_pcit, ggplot2::aes(x=average, y=de)) +
+    av_de <- ggplot2::ggplot(DE_all_genes, ggplot2::aes(x=average, y=de)) +
             ggplot2::geom_point()
     av_de <- ggExtra::ggMarginal(
       av_de,
@@ -685,7 +745,7 @@ Plots of some of the various metrics computed in the PCIT implementation. Better
       fill = '#A6A39E'
     )
 
-    de_diffK <- ggplot2::ggplot(metrics_pcit, ggplot2::aes(x=de, y=diffK)) +
+    de_diffK <- ggplot2::ggplot(DE_all_genes, ggplot2::aes(x=de, y=diffK)) +
             ggplot2::geom_point()
     de_diffK <- ggExtra::ggMarginal(
       de_diffK,
@@ -696,7 +756,7 @@ Plots of some of the various metrics computed in the PCIT implementation. Better
       fill = '#A6A39E'
     )
 
-    de_pif <- ggplot2::ggplot(metrics_pcit, ggplot2::aes(x=de, y=pif)) +
+    de_pif <- ggplot2::ggplot(DE_all_genes, ggplot2::aes(x=de, y=pif)) +
             ggplot2::geom_point()
     de_pif <- ggExtra::ggMarginal(
       de_pif,
@@ -707,7 +767,7 @@ Plots of some of the various metrics computed in the PCIT implementation. Better
       fill = '#A6A39E'
     )
 
-    de_rif1 <- ggplot2::ggplot(metrics_pcit, ggplot2::aes(x=de, y=rif1)) +
+    de_rif1 <- ggplot2::ggplot(DE_all_genes, ggplot2::aes(x=de, y=rif1)) +
             ggplot2::geom_point()
     de_rif1 <- ggExtra::ggMarginal(
       de_rif1,
@@ -718,7 +778,7 @@ Plots of some of the various metrics computed in the PCIT implementation. Better
       fill = '#A6A39E'
     )
 
-    de_rif2 <- ggplot2::ggplot(metrics_pcit, ggplot2::aes(x=de, y=rif2)) +
+    de_rif2 <- ggplot2::ggplot(DE_all_genes, ggplot2::aes(x=de, y=rif2)) +
             ggplot2::geom_point()
     de_rif2 <- ggExtra::ggMarginal(
       de_rif2,
@@ -729,7 +789,7 @@ Plots of some of the various metrics computed in the PCIT implementation. Better
       fill = '#A6A39E'
     )
 
-    rif1_rif2 <- ggplot2::ggplot(metrics_pcit, ggplot2::aes(x=rif1, y=rif2)) +
+    rif1_rif2 <- ggplot2::ggplot(DE_all_genes, ggplot2::aes(x=rif1, y=rif2)) +
             ggplot2::geom_point()
     rif1_rif2 <- ggExtra::ggMarginal(
       rif1_rif2,

@@ -41,11 +41,166 @@ write_expression_report <- function(exp_results,
     DE_all_genes <- exp_results[['DE_all_genes']]
     final_results <- exp_results[['final_results']] 
     var_filter <-  exp_results[['var_filter']] 
+    cpm_table <- exp_results[['cpm_table']]
 
     outf <- file.path(normalizePath(output_files),"DEG_report.html")
     rmarkdown::render(file.path(template_folder, 'main_report.Rmd'),
                       output_file = outf, intermediates_dir = output_files)
 }
+
+
+#' @importFrom heatmaply heatmaply
+write_summarize_heatmaps <- function(summarized_ORA, output_path) {
+  for (funsys in names(summarized_ORA)) {
+   summ_ora_funsys <- summarized_ORA[[funsys]]
+   heatmaply::heatmaply(summ_ora_funsys$summ_enr_table, 
+                         grid_color = "gray50",
+                         seriate = "mean",
+                         grid_width = 0.00001,
+                         dendrogram = "both",
+                         scale_fill_gradient_fun = ggplot2::scale_fill_gradient2(
+                         low = "#EE8291", 
+                         high = "white", 
+                         midpoint = 0.5, 
+                         limits = c(0, 1)),
+                         file = file.path(output_path, paste0("summ_",funsys,'_heatmap.html')))
+    heatmaply::heatmaply(summ_ora_funsys$summ_enr_clean, 
+                         grid_color = "gray50",
+                         seriate = "mean",
+                         grid_width = 0.00001,
+                         fontsize_row = 11,
+                          fontsize_col = 13,
+                         dendrogram = "both",
+                         scale_fill_gradient_fun = ggplot2::scale_fill_gradient2(
+                         low = "#EE8291", 
+                         high = "white", 
+                         midpoint = 0.5, 
+                         limits = c(0, 1)),
+                         file = file.path(output_path, paste0("summ_rem_parent_",funsys,'_heatmap.html')))
+    heatmaply::heatmaply(summ_ora_funsys$full_enr_table, 
+                        grid_color = "gray50",
+                        seriate = "mean",
+                        dendrogram = "both",
+                        grid_width = 0.00001,
+                        scale_fill_gradient_fun = ggplot2::scale_fill_gradient2(
+                        low = "#EE8291", 
+                        high = "white", 
+                        midpoint = 0.5, 
+                        limits = c(0, 1)),
+                        file = file.path(output_path, paste0("full_",funsys,'_heatmap.html')))
+  }
+}
+
+
+write_merged_cluster_report <- function(enrichments_ORA, results_path, template_folder, 
+    sample_classes=NULL, DEGH_results=NULL, showCategories, group_results) {
+    message("\tRendering full cluster reports")
+    if(is.null(enrichments_ORA)) {
+        message("No WGCNA ORA results, not printing cluster report")
+    } else {
+        flags_cluster <- sapply(enrichments_ORA, function(x) nrow(x@compareClusterResult)) != 0
+        names(flags_cluster) <- names(enrichments_ORA)
+        outf_cls <- file.path(results_path, "clusters_func_report.html")
+        rmarkdown::render(file.path(template_folder, 
+          'clusters_main_report.Rmd'), output_file = outf_cls, 
+          intermediates_dir = results_path)
+    }
+}
+
+
+#' Write Main clusters to enrichment output
+#' This function allows you to report the Functional analysis.
+#' @param output_path output folder
+#' @param output_file output file name for heatmaps
+#' @param mode type of output to produce
+#' @param enrichments_ORA list of enrich results for all clusters
+#' @param task_size number of elements per packages used
+#' @param workers (OPTIONAL) cores for parallel features
+#' @param template_folder (OPTIONAL) RMD templates folder
+#' @param top_categories numbers of categories from each cluster to use for merge
+#' @param group_results experimental - whether to group results in the emap plot
+#' @param n_category number of categories in the figures (per cluster)
+#' @param sim_thr value to use when combining similar categories in summary mode
+#' @param summary_common_name 'significant' to use the most significant term to label each summarized group
+#' 'ancestor' to use the common ancestor of the group"
+#' @param pvalcutoff used to select terms for summarizing
+#' @param gene_attributes named list of attributes e.g. FCs for emap plot coloured nodes (genes)
+#' @param gene_attribute_name name for the legend in the emap plot for the nodes (genes)
+#' @param max_genes maximum number of genes to plot in cnet plot
+#' @param simplify Activate for process ClusterProfiler results with simplify function
+#' @param clean_parentals Activate to reduce significant terms in GO by removin the parentals 
+#' @return void
+#' @importFrom enrichplot emapplot
+#' @importFrom enrichplot dotplot
+#' @importFrom ggplot2 ggsave
+#' @export
+write_clusters_to_enrichment <- function( 
+  output_path="results",
+  output_file="results",
+  mode="PR",
+  enrichments_ORA=NULL,
+  task_size = 1,
+  workers = 1,
+  template_folder = file.path(find.package('ExpHunterSuite'), 'templates'),
+  top_categories = NULL,
+  group_results = FALSE,
+  n_category = 30,
+  sim_thr = 0.7, 
+  summary_common_name = "ancestor", 
+  pvalcutoff = 0.1, 
+  gene_attributes=NULL,
+  gene_attribute_name=NULL, 
+  max_genes = 200,
+  simplify = FALSE,
+  clean_parentals = FALSE) {
+
+  enrichments_ORA_merged <- process_cp_list(enrichments_ORA, simplify_results = simplify, 
+    clean_parentals = clean_parentals)
+ 
+  if(!is.null(top_categories))
+         enrichments_ORA_merged <- filter_top_categories(enrichments_ORA_merged, top_categories)
+
+
+  if (grepl("R", mode)){
+      enrichments_for_reports <- parse_results_for_report(enrichments_ORA)  
+      write_enrich_clusters(enrichments_ORA, output_path)
+      write_func_cluster_report(enrichments_for_reports, output_path, gene_attributes, 
+        workers = workers, task_size = task_size, template_folder=template_folder, gene_attribute_name=gene_attribute_name)
+  }
+
+
+
+  if (grepl("P", mode)) {
+    for (funsys in names(enrichments_ORA_merged)){
+      if (length(unique(enrichments_ORA_merged[[funsys]]@compareClusterResult$Description)) < 2 ) next
+
+      if (group_results == TRUE){
+        pp <- enrichplot::emapplot(enrichments_ORA_merged[[funsys]], showCategory= n_category, pie="Count", layout = "nicely", 
+                    shadowtext = FALSE, node_label = "group", group_category = TRUE, 
+                    nCluster = min(floor(nrow(enrichments_ORA_merged[[funsys]])/7), 20), nWords = 6, repel = TRUE)
+      }else{
+        pp <- enrichplot::emapplot(enrichments_ORA_merged[[funsys]], showCategory= n_category, pie="Count", layout = "nicely", 
+                    shadowtext = FALSE, repel = TRUE)
+      }
+
+      ggplot2::ggsave(filename = file.path(output_path,paste0("emaplot_",funsys,".png")), pp, width = 30, height = 30, dpi = 300, units = "cm", device='png')
+
+      pp <- enrichplot::dotplot(enrichments_ORA_merged[[funsys]], showCategory= n_category, label_format = 70)
+      ggplot2::ggsave(filename = file.path(output_path,paste0("dotplot_",funsys,".png")), pp, width = 60, height = 40, dpi = 300, units = "cm", device='png')
+
+    }
+  }
+
+  if (grepl("S", mode)){
+    summarized_merged_ora <- summarize_merged_ora(enrichments_ORA_merged, sim_thr, summary_common_name, pvalcutoff)
+    write_summarize_heatmaps(summarized_merged_ora, output_path)
+  }
+  if(grepl("R", mode)) {
+    write_merged_cluster_report(enrichments_ORA_merged, results_path=output_path, template_folder, 
+            showCategories=n_category, group_results=group_results)
+  }
+}
+
 
 
 #' Write Main DEgenes Hunter functional report
@@ -61,7 +216,10 @@ write_expression_report <- function(exp_results,
 #'  dataframe)
 #' @param task_size number of elements per packages used
 #' @param report string with reports to be written. Allowed: clusters (c)
+#' @param showCategories number of categories in the figures (per cluster) 
+#' @param group_results experimental - whether to group results in the emap plot
 #'  and functional (f). Default = "fc"
+#' @param max_genes maximum number of genes to plot in cnet plot
 #' @return void
 #' @importFrom rmarkdown render
 #' @export
@@ -69,146 +227,131 @@ write_expression_report <- function(exp_results,
 #' # Load func and DE results
 #' data(degh_output)
 #' func_results <- list() 
-#' # func_results <- functional_hunter(degh_output,"Mouse")
+#' func_results <- main_functional_hunter(degh_output, "Mouse")
 #' write_functional_report(degh_output, func_results)
 write_functional_report <- function(hunter_results, 
                                     func_results, 
                                     output_files=getwd(), 
                                     fc_colname="mean_logFCs", 
-       organisms_table=NULL, 
-       template_folder = file.path(find.package('ExpHunterSuite'), 'templates'),
+                                    organisms_table=NULL, 
+                                    template_folder = file.path(find.package('ExpHunterSuite'), 'templates'),
                                     cores = 2,
                                     task_size = 1, 
-                                    report = "fc"){
+                                    report = "fc",
+                                    showCategories = 30,
+                                    group_results = FALSE,
+                                    max_genes = 200
+                                    ){
+    # TO parallelize properly
+    clean_tmpfiles_mod <- function() {
+      message("Calling clean_tmpfiles_mod()")
+    }
+    assignInNamespace("clean_tmpfiles", clean_tmpfiles_mod, ns = "rmarkdown")
+
+    if(!any(grepl("WGCNA", names(func_results))) && grepl("c|i", report)) {
+        message("Cluster reports chosen but no cluster results available. Reports wont be plotted")
+    }
+    results_path <- normalizePath(output_files)
+    model_organism <- func_results$final_main_params$model_organism
+
     if(is.null(organisms_table)){
         organisms_table <- get_organism_table()
     }
-    if(length(hunter_results) == 0 || length(func_results) == 0){
-        warning("Results objects are not complete")
-        return(NULL)
-    }
-    model_organism <- func_results$final_main_params$model_organism
-    # TODO: update names into Rmd files instead this
-    ############################################################
-    ##               CREATE NECESSARY VARIABLES               ##
-    ############################################################
-    degh_exp_threshold <- hunter_results$final_main_params$p_val_cutoff
-    DEGH_results <- func_results$DEGH_results_annot
-    # -
+    current_organism_info <- subset(organisms_table, 
+    rownames(organisms_table) %in% model_organism) 
+    
+    # Prepare the flag lists
+    flags_ora <- sapply(func_results$ORA, nrow) != 0
+    names(flags_ora) <- names(func_results$ORA)
+    flags_gsea <- sapply(func_results$GSEA, nrow) != 0
+    names(flags_gsea) <- names(func_results$GSEA)
+
+    # JRP to clean up - should take target directly
     experiments <- hunter_results$sample_groups
     sample_classes <- apply(experiments, 1, function(x) paste0("* [", x[1],
                       "] ", x[2]))
-    # -
-    if(! "externalDEA" %in% names(hunter_results[["all_data_normalized"]])) {
-        norm_counts <- hunter_results[["all_data_normalized"]][["DESeq2"]]
-        scaled_counts <- scale_data_matrix(data_matrix = as.matrix(norm_counts))
-        scaled_counts_table <- as.data.frame(as.table(scaled_counts))
-        colnames(scaled_counts_table) <- c("Gene","Sample","Count")
-    }
 
-    # -
-    flags <- func_results$flags
-    if(flags$WGCNA){
-        cls  <- unique(DEGH_results$Cluster_ID)
-        aux <- hunter_results$WGCNA_all$plot_objects$trait_and_module
-        cl_eigvalues <- as.matrix(aux[,grepl("^ME",colnames(aux))])
-        cl_eigvalues <- as.data.frame(as.table(cl_eigvalues),
-            stringsAsFactors = FALSE)
-        colnames(cl_eigvalues) <- c("Sample","Cluster_ID","Count") 
-        cl_eigvalues_gnorm <- cl_eigvalues
-        cl_eigvalues_gnorm$Count <- (cl_eigvalues_gnorm$Count + 1) / 2
-        aux2 <- hunter_results$WGCNA_all$package_objects
-        wgcna_pval_cl_trait <- as.matrix(aux2$module_trait_cor_p)
-        wgcna_corr_cl_trait <- as.matrix(aux2$module_trait_cor)
-        wgcna_count_sample_trait <- as.matrix(aux[,!grepl("^ME",
-            colnames(aux))])
-        wgcna_count_sample_trait <- scale_data_matrix(wgcna_count_sample_trait, 
-            norm_by_col = TRUE)
-    }
-    #-
-    if(any(grepl("WGCNA_ORA",names(func_results)))){
-        enrichments_ORA <- func_results$WGCNA_ORA
-        enrichments_ORA_expanded <- func_results$WGCNA_ORA_expanded
-    }
-    if(any(grepl("WGCNA_GSEA",names(func_results)))){
-        enrichments_GSEA <- func_results$WGCNA_GSEA
-        enrichments_GSEA_expanded <- func_results$WGCNA_GSEA_expanded
-    }
-    if(any(grepl("WGCNA_CUSTOM",names(func_results)))){
-        custom_cls_ORA <- func_results$WGCNA_CUSTOM
-        custom_cls_ORA_expanded <- func_results$WGCNA_CUSTOM_expanded
-    }
-    #-
-    current_organism_info <- subset(organisms_table, 
-        rownames(organisms_table) %in% model_organism)  
-    geneList <- func_results$DEGH_results_annot[
-       !is.na(func_results$DEGH_results_annot$entrezgene), fc_colname]
-    names(geneList) <- func_results$DEGH_results_annot[
-       !is.na(func_results$DEGH_results_annot$entrezgene), "entrezgene"]
-    geneList <- sort(geneList, decreasing = TRUE)
-    # -
-    custom_enrichments <- func_results$CUSTOM
-    if("ORA" %in% names(func_results)){
-        aux <- grepl("GO", names(func_results$ORA))
-        if(any(aux)) enrich_go <- func_results$ORA[aux]
-        if("KEGG" %in% names(func_results$ORA)) 
-            enrich_ora <- func_results$ORA$KEGG
-        if("REACT" %in% names(func_results$ORA)) 
-            enrich_react <- func_results$ORA$REACT
-    }
-    if("GSEA" %in% names(func_results)){
-        aux <- grepl("GO", names(func_results$GSEA))
-        if(any(aux)) enrich_go_gsea <- func_results$GSEA[aux]
-        if("KEGG" %in% names(func_results$GSEA)) 
-            enrich_gsea <- func_results$GSEA$KEGG
-        if("REACT" %in% names(func_results$GSEA)) 
-            enrich_react_gsea <- func_results$GSEA$REACT   
-    }
-    # TODO: topGO is not bein loaded because files are not been search
-    ############################################################
-    ##                GENERATE CLUSTER REPORTS                ##
-    ############################################################
-    clean_tmpfiles_mod <- function() {
-        message("Calling clean_tmpfiles_mod()")
-    }
+    fc_vector <- func_results$DEGH_results_annot[
+       !is.na(func_results$DEGH_results_annot$ENTREZID), fc_colname]
+    names(fc_vector) <- func_results$DEGH_results_annot[
+       !is.na(func_results$DEGH_results_annot$ENTREZID), "ENTREZID"]
 
-#https://github.com/rstudio/rmarkdown/issues/1632#issuecomment-545824711
-    utils::assignInNamespace("clean_tmpfiles", 
-                             clean_tmpfiles_mod, ns = "rmarkdown") 
+    enrichments_ORA <- func_results$WGCNA_ORA
+    DEGH_results <- func_results$DEGH_results_annot
+    enrichments_ORA_expanded <- func_results$WGCNA_ORA_expanded
 
-    results_path <- normalizePath(output_files)
-    results_temp <- file.path(paste0(results_path, "_tmp"))
-    check_and_create_dir(results_temp)
-    if(grepl("c", report)){
-        if (any(grepl("WGCNA",names(func_results)))) { # Clustered
-            message("Rendering specific cluster reports")
-            invisible(parallel_list(cls, function(cl) {
-                # Take output name
-                aux <- paste0("cl_func_",cl,".html")
-                outf_cls_i <- file.path(results_path, aux)
-                # Generate report
-                rmarkdown::render(file.path(template_folder, 
-                    'cl_func_report.Rmd'), output_file = outf_cls_i, 
-                intermediates_dir = file.path(results_temp, cl), quiet=TRUE)
-            }, workers = cores, task_size= task_size))
+    # JRP This will get us one day
+    norm_counts <- hunter_results[["all_data_normalized"]][["DESeq2"]]
+    scaled_counts <- scale_data_matrix(data_matrix = as.matrix(norm_counts))
+    scaled_counts_table <- as.data.frame(as.table(scaled_counts))
+    colnames(scaled_counts_table) <- c("Gene","Sample","Count")
 
-            message("\tRendering clustered report")
-            outf_cls <- file.path(results_path, "clusters_func_report.html")
-            rmarkdown::render(file.path(template_folder, 
-                'clusters_main_report.Rmd'),output_file = outf_cls, 
-            intermediates_dir = results_path)
-        }        
-    }
-    unlink(results_temp, recursive = TRUE)
-
-    ############################################################
-    ##              GENERATE DEG FUNCTIONAL REPORT            ##
-    ############################################################
     if(grepl("f", report)){
         message("\tRendering regular report")
         outf <- file.path(results_path, "functional_report.html")
         rmarkdown::render(file.path(template_folder, 'functional_report.Rmd'), 
             output_file = outf, intermediates_dir = results_path)        
+    }
+
+    if(grepl("c", report)){
+        write_merged_cluster_report(enrichments_ORA, results_path, template_folder, 
+            sample_classes, DEGH_results, showCategories, group_results)
+        write_summarize_heatmaps(func_results$summarized_ora, results_path)
+    }
+
+    if(grepl("a", report)){
+
+         filter_compareCluster <- function(compareCluster, clusters_to_fil){
+             fil_obj <- compareCluster
+             fil_obj@compareClusterResult <- fil_obj@compareClusterResult[
+                                     fil_obj@compareClusterResult$Cluster %in% clusters_to_fil,]
+             return(fil_obj)
+         }
+
+         lapply(func_results$WGCNA_ORA, function(funsys){
+             fil_funsys <- filter_compareCluster(funsys, fil_clusters)
+         })
+         write_merged_cluster_report(enrichments_ORA, results_path, template_folder,
+             sample_classes, DEGH_results, showCategories, group_results)
+    }
+    if(grepl("i", report)) {
+        message("\tRendering individual cluster reports")
+        if(is.null(enrichments_ORA)) {
+          message("No WGCNA ORA results, not printing individual cluster report")
+        } else {
+        cls  <- unique(DEGH_results$Cluster_ID)
+        cls <- cls[cls != 0]
+        trait_module <- hunter_results$WGCNA_all$plot_objects$trait_and_module
+        cl_eigvalues <- as.matrix(trait_module[,grepl("^ME",colnames(trait_module))])
+        cl_eigvalues <- as.data.frame(as.table(cl_eigvalues),
+          stringsAsFactors = FALSE)
+        colnames(cl_eigvalues) <- c("Sample","Cluster_ID","Count")
+        cl_eigvalues_gnorm <- cl_eigvalues
+        cl_eigvalues_gnorm$Count <- (cl_eigvalues_gnorm$Count + 1) / 2
+        pack_obj <- hunter_results$WGCNA_all$package_objects
+        wgcna_pval_cl_trait <- as.matrix(pack_obj$module_trait_cor_p)
+        wgcna_corr_cl_trait <- as.matrix(pack_obj$module_trait_cor)
+        wgcna_count_sample_trait <- as.matrix(trait_module[, !grepl("^ME",
+          colnames(trait_module))])
+        wgcna_count_sample_trait <- scale_data_matrix(wgcna_count_sample_trait, 
+          norm_by_col = TRUE)
+
+        message("\tRendering specific cluster reports")
+        parallel_list(cls, function(cl) {
+        #lapply(cls, function(cl) {
+            cl_flags_ora <- lapply(enrichments_ORA_expanded, function(x) {
+              nrow(x[[which(names(x) == cl)]]) != 0 
+            })
+            temp_path_cl <- file.path(results_path, paste0(cl,"_temp_cl_rep"))
+            outf_cls_i <- file.path(results_path, paste0("cl_func_",cl,".html"))
+            DEGH_results <- DEGH_results[which(DEGH_results$Cluster_ID == cl), ]
+            rmarkdown::render(file.path(template_folder, 
+                   'cl_func_report.Rmd'), output_file = outf_cls_i, 
+                   clean=TRUE, intermediates_dir = temp_path_cl)
+        #}) 
+        }, workers=cores, task_size=task_size)
+        unlink(list.files(results_path, pattern="_temp_cl_rep$", full.names=TRUE), recursive=TRUE) 
+      }
     }
 }
 
@@ -231,10 +374,15 @@ sample_proportion,
 selected_predicted_databases,
 all_cor_dist,
 miRNAseq, 
+miRNA_cont_tables,
+eval_method,
+miRNA_cont_tables_adj,
 RNAseq,
 sig_pairs,
 raw_databases_scores,
-p_fisher           
+p_fisher,
+mapping_output,
+output_pairs           
 ){
  "%>%" <- magrittr::"%>%"
 
@@ -250,7 +398,6 @@ parse_strat_text <- function(strategies){
   default_strats <-  c(
     "Eigengene_0_RNA_vs_miRNA_normalized_counts", 
     "normalized_counts_RNA_vs_miRNA_Eigengene_0", 
-    "DEGs_RNA_vs_miRNA_DEMs",
     "DEGs_DEMs_permutated")
   strategies <- strategies[!strategies %in% default_strats]
   dictionary <- list(
@@ -272,76 +419,27 @@ parse_strat_text <- function(strategies){
   return(paste(o_text, collapse = "\n"))
 } 
 
-write_functional_targets <- function(
-    enrich_GO,
-    enrich_KEGG,
-    enrich_react,
-    launch_default,
-    launch_expanded,
-    output_path,
-    strategy,
-    enrichments_ORA_expanded,
-    enrichments_ORA,
-    RNAseq_folder,
-    miRNAseq_folder,
-    templates_folder,
-    nomenclatures,
-    current_organism_info,
-    geneList,
-    enrich_custom = NULL,
-    strat,
-    unique_miRNAs,
-    raw_data,
-    cores,
-    task_size
 
-){
-    message("\tRendering regular report")
-    results_temp <- file.path(paste0(output_path, "_tmp"))
-    check_and_create_dir(output_path)
-    check_and_create_dir(results_temp)
-    if (launch_default) {
-        outf <- file.path(output_path, paste0(strategy, 
-            "_targets_functional.html"))
+write_func_cluster_report <- function(enrichments_for_reports, output_path, 
+  gene_attributes, workers, task_size, template_folder, gene_attribute_name="fold change", max_genes = 200){
+  clean_tmpfiles_mod <- function() {
+    message("Calling clean_tmpfiles_mod()")
+  }
+  assignInNamespace("clean_tmpfiles", clean_tmpfiles_mod, ns = "rmarkdown")
 
-        rmarkdown::render(file.path(templates_folder, 
-            'targets_functional.Rmd'), output_file = outf, 
-            intermediates_dir = results_temp)
-    }
-   
-    if (launch_expanded) {
-        message("Rendering specific miRNA reports")
-     
-        RNAseq <- load_DEGH_information(RNAseq_folder)
-        miRNAseq <- load_DEGH_information(miRNAseq_folder)
-        miRNA_strat <- unlist(strsplit(strat, ""))[2]
-        if (miRNA_strat == "h") {
-            hub_miRNAs <- get_hub_genes_by_MM(miRNAseq[["normalized_counts"]], 
-            miRNAseq[["DH_results"]], top = 1)
-        } else if (miRNA_strat == "E") {
-            miRNAseq$Eigengene <- as.data.frame(as.table(miRNAseq$Eigengene), 
-                               stringsAsFactors = FALSE)
-            colnames(miRNAseq$Eigengene) <- c("Sample","Cluster_ID","Count") 
-            tgt_eigvalues_gnorm <- miRNAseq$Eigengene
-            tgt_eigvalues_gnorm$Count <- (tgt_eigvalues_gnorm$Count + 1) / 2 
-        }
-        unique_miRNAs <- unique_miRNAs[!is.na(unique_miRNAs)]
-
-        invisible(parallel_list(unique_miRNAs, function(miRNA) {
-            # Take output name
-            target_outf <- file.path(output_path, paste0("targets_", 
-                miRNA,".html"))
-            # Generate report
-            rmarkdown::render(file.path(templates_folder, 
-                'miRNA_target_func.Rmd'), output_file = target_outf, 
-            intermediates_dir = file.path(results_temp, miRNA), quiet=TRUE)
-            
-        }, workers = cores, task_size= task_size))
-        message("\tRendering merged miRNA report")
-        outf_cls <- file.path(output_path, "expanded_targets_func.html")
-        rmarkdown::render(file.path(templates_folder, 
-            'targets_global_report.Rmd'),output_file = outf_cls,
-             intermediates_dir = results_temp)
-    }
-    unlink(results_temp, recursive = TRUE)
+  parallel_list(names(enrichments_for_reports), function(cluster) {
+    temp_path_cl <- file.path(output_path, paste0(cluster,"_temp"))
+    func_results <- enrichments_for_reports[[cluster]]
+    cl_flags_ora <- sapply(func_results, nrow) > 0
+    fc_vector <- gene_attributes[[cluster]]
+    outfile <- file.path(output_path, paste0(cluster, "_func_report.html"))
+    test_env <- list2env(list(func_results=func_results, 
+      cl_flags_ora=cl_flags_ora))
+    rmarkdown::render(file.path(template_folder, 
+                   'clusters_to_enrichment.Rmd'), output_file = outfile, 
+               clean=TRUE, intermediates_dir = temp_path_cl, envir=test_env)
+  }, workers=workers, task_size=task_size)
+  # temp files not deleted properly in parallel 
+  unlink(list.files(output_path, pattern="_temp$", full.names=TRUE), 
+    recursive=TRUE)
 }

@@ -14,7 +14,10 @@ write_functional_report(
   template_folder = file.path(find.package("ExpHunterSuite"), "templates"),
   cores = 2,
   task_size = 1,
-  report = "fc"
+  report = "fc",
+  showCategories = 30,
+  group_results = FALSE,
+  max_genes = 200
 )
 }
 \arguments{
@@ -36,8 +39,14 @@ Use see get_organism_table()}
 
 \item{task_size}{number of elements per packages used}
 
-\item{report}{string with reports to be written. Allowed: clusters (c)
+\item{report}{string with reports to be written. Allowed: clusters (c)}
+
+\item{showCategories}{number of categories in the figures (per cluster)}
+
+\item{group_results}{experimental - whether to group results in the emap plot
 and functional (f). Default = "fc"}
+
+\item{max_genes}{maximum number of genes to plot in cnet plot}
 }
 \value{
 void
@@ -50,6 +59,6 @@ This function allows you to report the Functional analysis.
 # Load func and DE results
 data(degh_output)
 func_results <- list() 
-# func_results <- functional_hunter(degh_output,"Mouse")
+func_results <- main_functional_hunter(degh_output, "Mouse")
 write_functional_report(degh_output, func_results)
 }
