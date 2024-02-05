@@ -31,51 +31,26 @@ build_design_for_WGCNA <- function(target,
                                    numeric_factors=NULL){
 # FOR WGCNA: Check that the appropriate factor columns can be found in the 
 # target file and makes a data frame with the specified factor
-    if(!is.null(string_factors)){
-        if(string_factors == "") {
-            string_factors <- "treat"
-        } else {
-            string_factors <- paste0("treat,", string_factors)
-        }
-        # In case we duplicate treat
-        string_factors <- unique(unlist(strsplit(string_factors, ",")))
-        if(! all(string_factors %in% colnames(target))) {
-            warning(paste0("Some factors specified with the --string_factors",
-                           " option cannot be found in the target file."))
-        }
-        string_factors_index <- colnames(target) %in% string_factors 
+    if(!is.null(string_factors)){ 
 
-        target_string_factors <- target[string_factors_index]
-        invisible(lapply(seq(ncol(target_string_factors)),function(i){
-          target_string_factors[,i] <<- as.factor(target_string_factors[,i])
-        }))
+        target_string_factors <- target[,colnames(target) %in% string_factors,
+                                                    drop = FALSE]
+        target_string_factors <- data.frame(sapply(target_string_factors, 
+                                                   as.factor), 
+                                            stringsAsFactors=TRUE)
+        return(target_string_factors)
     }
 
     if(!is.null(numeric_factors)){
-        if(numeric_factors != "") {
-            numeric_factors <- unlist(strsplit(numeric_factors, ","))
-            if(! all(numeric_factors %in% colnames(target))) {
-              warning(paste0("Some factors specified with the",
-              " --numeric_factors option cannot be found in the target file."))
-            }
+        if(sum(nchar(numeric_factors) == 0)) return("") 
 
-            numeric_factors_index <- colnames(target) %in% numeric_factors
-            if(TRUE %in% numeric_factors_index) {
-              target_numeric_factors <- target[numeric_factors_index]
-            } else {
-              stop(cat(paste0("Factors specified with the --numeric_factors ",
-              "option cannot be found in the target file.\nPlease resubmit.")))
-            }
-        } else {
-            target_numeric_factors <- ""
-        }
+        target_numeric_factors <- target[,colnames(target) %in% 
+                                              numeric_factors,
+                                              drop = FALSE]
+        return(target_numeric_factors)
     }
-    if(!is.null(string_factors)){
-        target_factors <- target_string_factors
-    } else {
-        target_factors <- target_numeric_factors
-    }
-    return(target_factors)    
+    
+    return(NULL)
 }
 
 

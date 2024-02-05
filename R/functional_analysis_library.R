@@ -27,43 +27,7 @@ scale_data_matrix <- function(data_matrix, norm_by_col = FALSE) {
   return(scaled_counts)
 }
 
-#' Catched errors fo pairwise_termsim for special cases
-#' @param enr enrichment object to be studied
-#' @param num_cats number of categories to be shown
-#' @return enrichment object after add termsim info
-#' @importFrom enrichplot pairwise_termsim
-catched_pairwise_termsim <- function(enr, num_cats = 200){
-  endedWithoutERRs <- FALSE
-  preparedForFortify <- FALSE
-  initial_num_cats <- num_cats
-  res <- enr
-  # Try
-  while(!endedWithoutERRs){
-    tryCatch(
-      # MAIN
-      {
-        enr <- enrichplot::pairwise_termsim(res, showCategory = num_cats)
-        endedWithoutERRs <- TRUE
-      },
-      # CATCH
-      error = function(cond){
-        if(!preparedForFortify){
-          res <<- prepare_for_fortify(res)
-          preparedForFortify <<- TRUE
-        }else{
-          num_cats <<- num_cats - 20
-        }
-        if(num_cats <= 0){
-          stop(cond)
-        }
-      }
-    )
-  }
-  if(num_cats < initial_num_cats) 
-    warning(paste0("Finally number of categories used has been (",
-                   num_cats,") for pairwise_termsim"))
-  return(enr)
-}
+
 
 
 #' Load a GMT format file and return a dataframe in correct format
@@ -111,7 +75,10 @@ get_organism_table <- function(file = NULL){
                            fill = NA))
 }
 
-add_translated_gene_ids <- function(DEGH_results, input_ids, input_gene_id, gene_translation_tables) {
+add_translated_gene_ids <- function(DEGH_results, 
+                                    input_ids, 
+                                    input_gene_id, 
+                                    gene_translation_tables) {
         input_to_entrezgene <- gene_translation_tables[["input_to_entrezgene"]]    
         input_to_symbol <- gene_translation_tables[["input_to_symbol"]]    
 
@@ -168,22 +135,33 @@ get_gene_lists_cl <- function(DEGH_results, fc_colname) {
     lapply(DEGH_res_list, function(x) get_gene_lists(x, fc_colname))
 }
 
+#' Obtain an org_db object from a current_organism_info, obtained from
+#' subsetting the results of get_organism_table()
+#' @param current_organism_info row from output of get_organism_table() 
+#' @export
+#' @keywords org_db
+#' @return org_db 
 get_org_db <- function(current_organism_info) {
   org_db <- current_organism_info$Bioconductor_DB[1]
   org_db <- eval(parse(text = paste0(org_db,"::",org_db)))
   return(org_db)
 }
 
-check_id_valid_orgdb <- function(gene_id, id_type="input", organism_info, outcome_action="stop") {
+check_id_valid_orgdb <- function(gene_id, 
+                                 id_type="input", 
+                                 organism_info, 
+                                 outcome_action="stop") {
   org_db <- get_org_db(organism_info)
   if(id_type == "input") possible_ids <- AnnotationDbi::keytypes(org_db)
   else possible_ids <- AnnotationDbi::columns(org_db)
 
   if(! gene_id %in% possible_ids) {
     if(outcome_action=="stop") {
-      stop(paste(c("gene id must be one of the following:", possible_ids), collapse=" "))
+      stop(paste(c("gene id must be one of the following:", possible_ids), 
+                                                              collapse=" "))
     } else if(outcome_action=="warn") {
-      warning(paste(c("gene id must be one of the following:", possible_ids), collapse=" "))
+      warning(paste(c("gene id must be one of the following:", possible_ids), 
+                                                                collapse=" "))
       return(FALSE)
     }
   }
@@ -208,43 +186,66 @@ translate_from_table <- function(ids_to_translate, annot_table){
   return(translated_ids)
 }
 
-get_translation_tables_orgdb <- function(input_gene_id, input_ids, current_organism_info) {
+get_translation_tables_orgdb <- function(
+  input_gene_id, 
+  input_ids, 
+  current_organism_info) {
   org_db <- get_org_db(current_organism_info)
   if(input_gene_id == "ENTREZID") {
     input_to_entrezgene <- data.frame(input=input_ids, 
                                       ENTREZID=input_ids)
   } else {
     # Check input gene ID valid
-    check_id_valid_orgdb(gene_id=input_gene_id, id_type="input", organism_info=current_organism_info, outcome_action="stop")
+    check_id_valid_orgdb(gene_id=input_gene_id, 
+                         id_type="input", 
+                         organism_info=current_organism_info, 
+                         outcome_action="stop")
 
         input_to_entrezgene <- translate_ids_orgdb(ids=input_ids, 
         input_id=input_gene_id, org_db=org_db) 
   }
-  symbol_output_available <- check_id_valid_orgdb(gene_id=input_gene_id, id_type="output", 
-                                                  organism_info=current_organism_info, outcome_action="warning")
+  symbol_output_available <- check_id_valid_orgdb(
+                                        gene_id=input_gene_id, 
+                                        id_type="output", 
+                                        organism_info=current_organism_info, 
+                                        outcome_action="warning")
             
   if(symbol_output_available == TRUE) {
-    input_to_symbol <- translate_ids_orgdb(ids=input_ids, 
-    input_id=input_gene_id, output_id="SYMBOL", org_db=org_db)
+    if(input_gene_id == "SYMBOL") {
+      input_to_symbol <- data.frame(input=input_ids, 
+                                      SYMBOL=input_ids)
+    } else {
+      input_to_symbol <- translate_ids_orgdb(ids=input_ids, 
+      input_id=input_gene_id, output_id="SYMBOL", org_db=org_db)
+    }
   } else {
     input_to_symbol <- NULL
   }
-  return(list(input_to_entrezgene = input_to_entrezgene, input_to_symbol = input_to_symbol))
+  return(list(input_to_entrezgene = input_to_entrezgene, 
+              input_to_symbol = input_to_symbol))
 }
 
-translate_ids_orgdb <- function(ids, input_id, output_id="ENTREZID", org_db=org_db, just_output_ids=FALSE){
+translate_ids_orgdb <- function(
+ids, 
+input_id, 
+output_id="ENTREZID", 
+org_db=org_db, 
+just_output_ids=FALSE){
+  
   possible_ids <- AnnotationDbi::columns(org_db)
   if(! input_id %in% possible_ids) 
-    stop(paste(c("gene keytype must be one of the following:", possible_ids), collapse=" "))
+    stop(paste(c("gene keytype must be one of the following:", possible_ids),
+                                                               collapse=" "))
     ids <- tryCatch(
-      ids <- AnnotationDbi::select(org_db, keys=ids, column=output_id, keytype=input_id),
+      ids <- AnnotationDbi::select(org_db, keys=ids, column=output_id, 
+                                  keytype=input_id),
       error=function(cond){
             ids <- NULL
         }
     )
-    ids <- ids[!is.na(ids[,2]),]
+    ids <- ids[!is.na(ids[,output_id]),]
     if(just_output_ids == TRUE) {
-      return(unique(ids[,2]))
+      return(unique(ids[,output_id]))
     } else {
       return(ids)
     }
@@ -437,10 +438,14 @@ prepare_enrichment_Reactome <- function(enrichment_type, reactome_id) {
 
 #' @importFrom clusterProfiler gseKEGG enrichKEGG
 prepare_enrichment_KEGG <- function(enrichment_type, kegg_file) {
-  if(is.null(kegg_file) || ! file.exists(kegg_file) ) stop("kegg_file not found or not provided. 
+############# DEPRECATED FUNCTION
+
+  if(is.null(kegg_file) || ! file.exists(kegg_file) ) 
+                stop("kegg_file not found or not provided. 
   It can be downloaded using download_latest_kegg_db()")
 
   if(enrichment_type == "ora") enrf <- clusterProfiler::enrichKEGG
+
   if(enrichment_type == "gsea") enrf <- clusterProfiler::gseKEGG
 
   ENRICH_DATA <- readRDS(kegg_file)
@@ -449,6 +454,38 @@ prepare_enrichment_KEGG <- function(enrichment_type, kegg_file) {
   body(enrf)[[ltorem]] <- substitute(KEGG_DATA <- ENRICH_DATA)
   return(enrf)
 }
+
+
+
+
+enrichKEGG_user_data <- function (
+  gene, 
+  organism = "hsa", 
+  keyType = "kegg", 
+  pvalueCutoff = 0.05,
+  pAdjustMethod = "BH", 
+  universe, minGSSize = 10, 
+  maxGSSize = 500,
+  qvalueCutoff = 0.2, 
+  user_data, ...)
+{
+    res <- clusterProfiler:::enricher_internal(gene, 
+      pvalueCutoff = pvalueCutoff,
+      pAdjustMethod = pAdjustMethod, 
+      universe = universe, 
+      minGSSize = minGSSize,
+      maxGSSize = maxGSSize, 
+      qvalueCutoff = qvalueCutoff, 
+      USER_DATA = user_data,
+      ...)
+    if (is.null(res))
+        return(res)
+    res@ontology <- "KEGG"
+    res@organism <- organism
+    res@keytype <- keyType
+    return(res)
+}
+
 
 #' Perform ORA enrichment analysis of a list of genes
 #' @param all_funsys vector of funsys to use (e.g. MF, Reatcome)
@@ -486,7 +523,8 @@ multienricher_ora <- function(all_funsys=NULL, genes_list, universe=NULL,
     pAdjustMethod = pAdjustMethod, ...)
 
   if(! is.null(custom_sets)) {
-    if(is.null(names(custom_sets))) stop("Custom sets enrichment object must be a named list")
+    if(is.null(names(custom_sets))) 
+                stop("Custom sets enrichment object must be a named list")
     all_funsys <- c(all_funsys, names(custom_sets))
   }
   if (is.null(org_db)) {
@@ -502,14 +540,21 @@ multienricher_ora <- function(all_funsys=NULL, genes_list, universe=NULL,
       specific_params <- list(OrgDb = org_db, ont = funsys)
 
     } else  if (funsys == "Reactome"){
+     
       enrf <- prepare_enrichment_Reactome(enrichment_type="ora", 
         reactome_id = organism_info$Reactome_ID[1])
       specific_params <- list(organism = organism_info$Reactome_ID[1])
 
     } else if (funsys == "KEGG"){
-      enrf <- prepare_enrichment_KEGG(enrichment_type="ora", 
-        kegg_file = kegg_file)
       specific_params <- list(organism = organism_info$KeggCode[1])
+      if (!is.null(kegg_file)){ 
+        enrf <- enrichKEGG_user_data 
+        ENRICH_DATA <- readRDS(kegg_file)
+        specific_params<- c(specific_params, list(user_data = ENRICH_DATA))
+      } else {
+          stop("kegg_file not found or not provided. 
+          It can be downloaded using download_latest_kegg_db()")
+      }      
     } else if (funsys == "DO"){
       # No need for prepare enrichment function - hack not necessary
       enrf <- DOSE::enrichDO
@@ -526,11 +571,12 @@ multienricher_ora <- function(all_funsys=NULL, genes_list, universe=NULL,
       stop("funsys", funsys, "not recognized")
     }
     temp_workers <- workers
-    if(funsys == "DO") workers <- 1 # DOSE not working in parallel, lucky its quick
+    if(funsys == "DO") workers <- 1 #DOSE not working in parallel, but its quick
+
     enriched_cats <- parallel_list(genes_list, function(l_genes){
         params_genes <- c(specific_params, common_params, list(gene = l_genes))
         enr <- do.call("enrf", params_genes)
-     }, workers= workers, task_size = task_size
+     } , workers= workers, task_size = task_size
     )
     workers <- temp_workers
     if(return_all == FALSE) enriched_cats[sapply(enriched_cats,is.null)] <- NULL
@@ -548,7 +594,8 @@ multienricher_ora <- function(all_funsys=NULL, genes_list, universe=NULL,
     if(funsys == "Reactome") { 
       enriched_cats <- lapply(enriched_cats, function(enr) {
         if(nrow(enr) > 0)
-        enr@result[,"Description"] <- gsub("^.+\\r: ", "", enr@result[,"Description"])
+        enr@result[,"Description"] <- gsub("^.+\\r: ", "", 
+                                                    enr@result[,"Description"])
         return(enr)
       })
     }
@@ -565,7 +612,6 @@ add_term_sim_ora <- function(deg_enr_ora) {
     if(is.list(enrichment) && length(enrichment) > 1) {
       enr_with_termsim[[funsys]] <- sapply(enrichment, function(enr) {
         if(nrow(enr) > 0) {
-#         return(catched_pairwise_termsim(enr))
           return(trycatch_pairwise_termsim(enr))
         } else {
           return(enr)
@@ -574,7 +620,6 @@ add_term_sim_ora <- function(deg_enr_ora) {
     } else {
       if(nrow(enrichment) > 0) {
         enr_with_termsim[[funsys]] <- trycatch_pairwise_termsim(enrichment)
-        #enr_with_termsim[[funsys]] <- catched_pairwise_termsim(enrichment)
       } else {
         enr_with_termsim[[funsys]] <- enrichment
       }
@@ -587,10 +632,9 @@ add_term_sim_ora <- function(deg_enr_ora) {
 #' Only seems to be a problem with Reactome - to study further
 #' Further investigation re: number of cats also required
 #' @param enr enrichment object to be studied
-#' @param num_cats number of categories to be shown
 #' @return enrichment object after add termsim info
 #' @importFrom enrichplot pairwise_termsim
-trycatch_pairwise_termsim <- function(enr, num_cats = 200){
+trycatch_pairwise_termsim <- function(enr){ 
   enr <- tryCatch(
   {
     enr <-enrichplot::pairwise_termsim(enr)
@@ -601,7 +645,8 @@ trycatch_pairwise_termsim <- function(enr, num_cats = 200){
     message("ATTEMPTING TO FIX BY REMOVING DUPLICATED ID DESCRIPTIONS")
     ccr <- enr@compareClusterResult
     unique_desc_id <- unique(ccr[c("ID","Description")])
-    IDs_with_dupl_desc <- unique_desc_id$ID[duplicated(unique_desc_id$Description)]
+    IDs_with_dupl_desc <- unique_desc_id$ID[
+                                         duplicated(unique_desc_id$Description)]
     enr@compareClusterResult <- ccr[! ccr$ID %in% IDs_with_dupl_desc, ]
 
     enrichplot::pairwise_termsim(enr)
@@ -612,6 +657,12 @@ trycatch_pairwise_termsim <- function(enr, num_cats = 200){
 
 merge_clusters <- function(results_list) {
   merged_clusters <- lapply(results_list, clusterProfiler::merge_result)
+}
+
+filter_cluster_enrichment <- function(compareCluster, filter_list){
+    compareCluster@compareClusterResult <- compareCluster@compareClusterResult[
+              compareCluster@compareClusterResult$Cluster %in% filter_list,]
+    return(compareCluster)
 }
 
 hamming_binary <- function(X, Y = NULL) {
@@ -632,8 +683,8 @@ summarize_merged_ora <- function(ORA_merged, sim_thr=0.7,
   }
   ORA_merged <- ORA_merged[names(ORA_merged) %in% c("BP","MF","CC")]
 
-  sum_enrichments <- summarize_categories(ORA_merged, sim_thr = sim_thr, common_name = common_name)
-                # save(list = ls(all.names = TRUE), file = "~/summarize_merged_ora_before.RData")
+  sum_enrichments <- summarize_categories(ORA_merged, sim_thr = sim_thr, 
+    common_name = common_name)
 
   summ_ora_to_plot <- list()
   for (funsys in names(ORA_merged)) {
@@ -647,11 +698,12 @@ summarize_merged_ora <- function(ORA_merged, sim_thr=0.7,
     rownames(summ_enr_clean) <- get_GOid_term(rownames(summ_enr_clean))
     summ_enr_clean <- summ_enr_clean[rowSums(summ_enr_clean < pthreshold) != 0,]
    
-    full_enr_table <- cluster_enr_to_matrix(ORA_merged[[funsys]]@compareClusterResult)
+    full_enr_table <- cluster_enr_to_matrix(
+                                      ORA_merged[[funsys]]@compareClusterResult)
     full_enr_table <- (full_enr_table > pthreshold) + 0
-    summ_ora_to_plot[[funsys]] <- list(summ_enr_table=summ_enr_table, summ_enr_clean=summ_enr_clean, full_enr_table=full_enr_table)
+    summ_ora_to_plot[[funsys]] <- list(summ_enr_table=summ_enr_table, 
+      summ_enr_clean=summ_enr_clean, full_enr_table=full_enr_table)
   }
-                  # save(list = ls(all.names = TRUE), file = "~/summarize_merged_ora_after.RData")
 
   return(summ_ora_to_plot)
 }
@@ -900,24 +952,24 @@ clean_parentals_in_matrix <- function(enrichment_mx, subont){
 
 
 filter_top_categories <- function(enrichments_ORA_merged, top_c = 50){
-    # save(enrichments_ORA_merged, file="enrichments_ORA_merged.RData")
-    if(! is.null(top_c)) {
-      for (funsys in names(enrichments_ORA_merged)){
-        filtered_enrichments <- 
-          enrichments_ORA_merged[[funsys]]@compareClusterResult
-        if (nrow(filtered_enrichments) == 0) next 
-        filtered_enrichments <- filtered_enrichments[order(
-          filtered_enrichments$p.adjust, decreasing = FALSE), ]
-        filtered_enrichments <- Reduce(rbind,by(
-          filtered_enrichments,filtered_enrichments["Cluster"], head, n = top_c))
-        filtered_terms <- unique(filtered_enrichments$Description)
-        enrichments_ORA_merged[[funsys]]@compareClusterResult <- 
-          filtered_enrichments
-        enrichments_ORA_merged[[funsys]]@termsim <- 
-          enrichments_ORA_merged[[funsys]]@termsim[filtered_terms,filtered_terms]
-      }
+  # save(enrichments_ORA_merged, file="enrichments_ORA_merged.RData")
+  if(! is.null(top_c)) {
+    for (funsys in names(enrichments_ORA_merged)){
+      filtered_enrichments <- 
+        enrichments_ORA_merged[[funsys]]@compareClusterResult
+      if (nrow(filtered_enrichments) == 0) next 
+      filtered_enrichments <- filtered_enrichments[order(
+        filtered_enrichments$p.adjust, decreasing = FALSE), ]
+      filtered_enrichments <- Reduce(rbind,by(
+        filtered_enrichments,filtered_enrichments["Cluster"], head, n = top_c))
+      filtered_terms <- unique(filtered_enrichments$Description)
+      enrichments_ORA_merged[[funsys]]@compareClusterResult <- 
+        filtered_enrichments
+      enrichments_ORA_merged[[funsys]]@termsim <- 
+        enrichments_ORA_merged[[funsys]]@termsim[filtered_terms,filtered_terms]
     }
-    return(enrichments_ORA_merged)
+  }
+  return(enrichments_ORA_merged)
 }
 
 
@@ -935,13 +987,28 @@ process_cp_list <- function(enrichments_ORA, simplify_results,
         enr_obj@fun <- "enrichGO"
         enr_obj <- clusterProfiler::simplify(enr_obj) 
       } 
-      enr_obj <- trycatch_pairwise_termsim(enr_obj, 200)
+      enr_obj <- trycatch_pairwise_termsim(enr_obj)
     }                              
     enrichments_ORA_tr[[funsys]] <- enr_obj 
   }
   return(enrichments_ORA_tr)
 }
 
+#' @importFrom GO.db GOOBSOLETE
+clean_GO_obsolete <- function(enr_obj) {
+  obsolete_terms <- names(as.list(GO.db::GOOBSOLETE))
+
+  if (is(enr_obj, "compareClusterResult")){
+    enriched_table <- enr_obj@compareClusterResult
+    enriched_table <- enriched_table[!enriched_table$ID %in% obsolete_terms,]
+    enr_obj@compareClusterResult <- enriched_table
+  } else if (is(enr_obj, "enrichResult")) {
+    enriched_table <- enr_obj@result
+    enriched_table <- enriched_table[!enriched_table$ID %in% obsolete_terms,]
+    enr_obj@result <- enriched_table
+  } 
+  return(enr_obj)
+}
 
 #' @importFrom GO.db GOBPANCESTOR GOMFANCESTOR GOCCANCESTOR
 clean_all_parentals <- function(enr_obj, subont){
@@ -955,7 +1022,7 @@ clean_all_parentals <- function(enr_obj, subont){
   }
   GO_ancestors <- as.list(GO_ancestors)
   GO_ancestors <- GO_ancestors[!is.na(GO_ancestors)]
-
+  enr_obj <- clean_GO_obsolete(enr_obj)
   enrich_obj <- enr_obj@compareClusterResult
   pre_hamming_m <- matrix(0, nrow = length(unique(enrich_obj$Cluster)), 
                               ncol = length(unique(enrich_obj$ID)), 
@@ -1083,6 +1150,7 @@ clean_parentals_in_matrix <- function(enrichment_mx, subont){
 return(enrichment_mx)
 }
 
+
 obtain_gene_attributes <- function(gene_attribute_file, org_db, keytype) {
   gene_attributes <- read.table(gene_attribute_file, header=TRUE)
   gene_attribute_name <- colnames(gene_attributes)[3]
@@ -1103,6 +1171,7 @@ obtain_gene_attributes <- function(gene_attribute_file, org_db, keytype) {
     gene_attributes = gene_attr_list))
 }
 
+#' @importFrom clusterProfiler simplify
 parse_results_for_report <- function(enrichments, simplify_results = FALSE){
   enrichments_for_reports <- list()
   for (funsys in names(enrichments)){
@@ -1115,10 +1184,59 @@ parse_results_for_report <- function(enrichments, simplify_results = FALSE){
           enr <- clusterProfiler::simplify(enr) 
       }   
       if (length(enr$Description) > 2 ) 
-      enr <- catched_pairwise_termsim(enr, length(enr$Description))
+      enr <- trycatch_pairwise_termsim(enr)
       enrichments_for_reports[[cluster]][[funsys]] <- enr 
     }
   }
   return(enrichments_for_reports)
 }
 
+
+
+#' @importFrom ggridges geom_density_ridges
+#' @importFrom ggplot2 ggplot aes theme_classic
+enrich_density <- function(enrich_result, 
+                           attributes, 
+                           showCategory = 30) {
+
+  terms_attr <- get_attr_by_terms(enrich_result, attributes)
+  enrich_result <- enrichplot:::fortify.internal(
+                                  enrich_result,
+                                  showCategory = showCategory,
+                                  by = "p.adjust",
+                                  )
+
+  enriched_dist <- merge(terms_attr, enrich_result, by ="ID", all.y = TRUE)
+  plot <- ggplot2::ggplot(enriched_dist, ggplot2::aes(x = attribute, 
+                                              y = Description, 
+                                              fill = p.adjust)) + 
+  ggridges::geom_density_ridges(jittered_points = TRUE, 
+                                position = "raincloud", 
+                                alpha = 0.7, 
+                                scale = 0.9, 
+                                quantile_lines = TRUE) + 
+  ggplot2::theme_classic()
+
+  return(plot)
+}
+
+get_attr_by_terms <-function(enrich_result, attributes){
+  term_list <- split(enrich_result@result, enrich_result@result$ID)
+  gene2Symbol <- enrich_result@gene2Symbol
+  attr_list <- lapply(term_list, get_term_attr, 
+                      attributes = attributes, 
+                      gene2Symbol = gene2Symbol)
+ 
+  term_attr <- data.table::rbindlist(attr_list, 
+                                     use.names = TRUE, 
+                                     idcol = "ID")
+  return(as.data.frame(term_attr))
+}
+
+get_term_attr <- function(term_data, attributes, gene2Symbol) {
+  g_symbols <- unlist(stringr::str_split(term_data$geneID,"/"))
+  g_id <- names(gene2Symbol)[match(g_symbols, gene2Symbol)]
+  g_attr <- attributes[match(g_id, names(attributes))]
+  names(g_attr) <- NULL
+  return(data.frame(attribute = g_attr))
+}

@@ -34,6 +34,7 @@
 #' @param WGCNA_minKMEtoStay see WGCNA package
 #' @param WGCNA_corType see WGCNA package
 #' @param multifactorial specify interaction/effect when multifactorial design
+#' @param library_sizes NULL or a dataframe with sample names and library sizes
 #' @return expression analysis result object with studies performed
 #' @keywords method
 #' @importFrom rlang .data
@@ -58,8 +59,8 @@ main_degenes_Hunter <- function(
     minpack_common = 4,
     model_variables = "",
     numerics_as_factors = TRUE,
-    string_factors = "",
-    numeric_factors = "",
+    string_factors = NULL,
+    numeric_factors = NULL,
     WGCNA_memory = 5000,
     WGCNA_norm_method = "DESeq2",
     WGCNA_deepsplit = 2,
@@ -73,7 +74,8 @@ main_degenes_Hunter <- function(
     WGCNA_minCoreKMESize = NULL,
     WGCNA_minKMEtoStay = 0.2,
     WGCNA_corType = "pearson",
-    multifactorial = ""
+    multifactorial = "",
+    library_sizes = NULL
   ){
     modified_input_args <- check_input_main_degenes_Hunter(raw, 
       minlibraries, reads, external_DEA_data, modules, model_variables,
@@ -112,7 +114,14 @@ main_degenes_Hunter <- function(
        stop(paste0('At least two replicates per class (i.e. treatment and',
                    ' control) are required\n'))
 
+    
+    numeric_factors <- split_str(numeric_factors, ",")
+    if (sum(numeric_factors == "") >= 1) numeric_factors <- NULL #esto esta para controlar que no haya elementos vacios
 
+    string_factors <- split_str(string_factors, ",")
+    string_factors <-  c("treat", string_factors)
+
+    
     if(!is.null(target) & grepl("W", modules)) {
       target_numeric_factors <- build_design_for_WGCNA(target, 
            numeric_factors=numeric_factors)
@@ -122,11 +131,8 @@ main_degenes_Hunter <- function(
 
     if(numerics_as_factors == TRUE) { 
       # Now coerce the targets to factors for the multifactorial analysis
-      invisible(lapply(seq(ncol(target)),function(i){
-        target[,i] <<- as.factor(target[,i])
-      }))
-      # target <-  data.frame(sapply(target, as.factor), 
-        # stringsAsFactors=TRUE)
+       target <-  data.frame(sapply(target, as.factor), 
+         stringsAsFactors=TRUE)
 
     }
     model_formula_text <- prepare_model_text(model_variables, 
@@ -148,18 +154,30 @@ main_degenes_Hunter <- function(
     var_filter <- filter_by_variance(raw_filter, 
                                      q_filter = count_var_quantile, 
                                      target = target)
+    default_norm <- list(default = 
+                      as.data.frame(var_filter[["deseq2_normalized_counts"]]))
     raw_filter <- var_filter[["fil_count_mtrx"]]
 
     
+
+    #computing PCA for all_genes
+    full_pca <- compute_pca(pca_data = default_norm$default,
+                            target = target,
+                            string_factors = string_factors, 
+                            numeric_factors = numeric_factors)
+    PCA_res <- list("all_genes" = full_pca)
     ############################################################
     ##             PERFORM EXPRESION ANALYSIS                 ##
     ############################################################
     dir.create(output_files)
-   
+
+
     exp_results <- perform_expression_analysis(modules, replicatesC, 
                      replicatesT, raw_filter, p_val_cutoff, target, 
                      model_formula_text, external_DEA_data, 
                      multifactorial)
+    exp_results[["all_data_normalized"]] <- c(default_norm,
+                                              exp_results[["all_data_normalized"]])
 
     #################################################################
     ##                       CORRELATION ANALYSIS                   ##
@@ -170,7 +188,6 @@ main_degenes_Hunter <- function(
       cat('Correlation analysis is performed with WGCNA\n')
       path <- file.path(output_files, "Results_WGCNA")
       dir.create(path)
-
       all_data_normalized <- exp_results[['all_data_normalized']]
       if(WGCNA_norm_method %in% names(all_data_normalized)) {
         WGCNA_input <- all_data_normalized[[WGCNA_norm_method]]
@@ -208,13 +225,30 @@ main_degenes_Hunter <- function(
     #################################################################
     ##                    BUILD MAIN RESULT TABLE                  ##
     #################################################################
-
-    DE_all_genes <- unite_DEG_pack_results(exp_results, p_val_cutoff, 
-                                           lfc, minpack_common)
     mean_cpm <- rowMeans(raw_filter)
-    DE_all_genes <- merge(DE_all_genes, mean_cpm, by=0, sort=FALSE)
-    names(DE_all_genes)[names(DE_all_genes) == "y"] <- "mean_expression_cpm"
-    DE_all_genes <- transform(DE_all_genes, row.names=Row.names, Row.names=NULL)
+    DE_all_genes <- NULL
+    DEG_pca <- NULL
+    if (any(grepl("[DENL]",modules))){
+      DE_all_genes <- unite_DEG_pack_results(exp_results, p_val_cutoff, 
+                                             lfc, minpack_common)
+      DE_all_genes <- merge(DE_all_genes, mean_cpm, by=0, sort=FALSE)
+      names(DE_all_genes)[names(DE_all_genes) == "y"] <- "mean_expression_cpm"
+      DE_all_genes <- transform(DE_all_genes, row.names=Row.names, Row.names=NULL)
+      # Add the filtered genes back
+      DE_all_genes <- add_filtered_genes(DE_all_genes, raw)
+
+
+      #computing PCA for PREVALENT DEG
+
+      prevalent_degs <- rownames(DE_all_genes[DE_all_genes$genes_tag == "PREVALENT_DEG",])
+      pca_deg_data <- default_norm$default
+      pca_deg_data <- pca_deg_data[rownames(pca_deg_data) %in% prevalent_degs,]
+      
+      PCA_res[["DEGs"]] <- compute_pca(pca_data = pca_deg_data,
+                            target = target,
+                            string_factors = string_factors, 
+                            numeric_factors = numeric_factors)
+    }
 
     if(grepl("W", modules)) { # Check WGCNA was run and returned proper results
       DE_all_genes <- merge(by.x=0, by.y="ENSEMBL_ID", x= DE_all_genes, 
@@ -244,9 +278,16 @@ main_degenes_Hunter <- function(
          results_diffcoexp$DCGs$Gene[results_diffcoexp$DCGs$q < 1]
       DE_all_genes$DCL <- aux %in% results_diffcoexp$DCLs$Gene.1 | 
          aux %in% results_diffcoexp$DCLs$Gene.2
-    }    
-    # Add the filtered genes back
-    DE_all_genes <- add_filtered_genes(DE_all_genes, raw)
+    }
+
+   
+
+
+    coverage_df <- get_counts(cnts_mtx=raw, library_sizes=library_sizes)
+    mean_counts_df <- get_mean_counts(cnts_mtx=raw, cpm_table=cpm_table, reads=reads, minlibraries=minlibraries)
+    exp_genes_df <- get_gene_stats(cpm_table=cpm_table, reads=reads)    
+
+ 
 
     final_results <- list()
     final_results[['cpm_table']] <- cpm_table
@@ -260,12 +301,21 @@ main_degenes_Hunter <- function(
     final_results[['replicatesT']] <- replicatesT
     final_results[['final_main_params']] <- final_main_params
     final_results[["var_filter"]] <- var_filter
+    final_results[["coverage_df"]] <- coverage_df
+    final_results[["mean_counts_df"]] <- mean_counts_df
+    final_results[["exp_genes_df"]] <- exp_genes_df
+    final_results[["target"]] <- target 
+    final_results[["numeric_factors"]] <- numeric_factors
+    final_results[["string_factors"]] <- string_factors
+    final_results[["PCA_res"]] <- PCA_res
     if(!is.null(combinations_WGCNA)){
       final_results <- c(final_results, combinations_WGCNA)
     }
-    return(c(final_results, exp_results))
-}
+    final_results <- c(final_results, exp_results)
+    return(final_results)
 
+
+}
 
 
 check_input_main_degenes_Hunter <- function(raw, 
@@ -351,12 +401,7 @@ check_input_main_degenes_Hunter <- function(raw,
     }
 
     # If factors are specified but WGCNA not selected, throw a warning.
-    if((string_factors != "" | numeric_factors != "") & 
-       (!grepl("W", modules) | is.null(target))) {
-      warning(paste0("If you wish to use factors for the correlation analysis",
-        " you must also run WGCNA and include a target file. The -S",
-        " and -N options will be ignored"))
-    }
+   
     return(list(modules=modules, 
                 active_modules=active_modules, 
                 minpack_common=minpack_common, 
@@ -387,7 +432,7 @@ filter_count <- function(reads,
       } else if (filter_type == "global") {
         # genes with cpm greater than --reads value for
         # at least --minlibrariess samples
-        keep_cpm <- rowSums(cpm_table > reads) >= minlibraries 
+        keep_cpm <- rowSums(cpm_table >= reads) >= minlibraries 
         raw <- raw[keep_cpm,] # Filter out count data frame
       } else if (grepl("^combined", filter_type) == TRUE) {
         split_filter <- strsplit(filter_type, ":")[[1]]
@@ -398,7 +443,7 @@ filter_count <- function(reads,
         samples_per_combo <- lapply(combs_list, function(x) as.vector(x$sample))
         cpm_tab_per_combo <- sapply(samples_per_combo, function(x) cpm_table[, x])
         combos_passing_filter <- sapply(cpm_tab_per_combo, 
-          function(x) rowSums(x > reads) > minlibraries)
+          function(x) rowSums(x >= reads) >= minlibraries)
         keep_cpm <- apply(combos_passing_filter, 1, any)
         raw <- raw[keep_cpm,] # Filter out count data frame
       } else {
@@ -418,13 +463,14 @@ filter_by_variance <- function(count_matrix, q_filter, target){
                                   colData = target,
                                   design = stats::formula("~ treat"))
   dds <- DESeq2::DESeq(dds)
-  normalized_counts <-DESeq2::counts(dds, normalized=TRUE)
+  normalized_counts <- DESeq2::counts(dds, normalized=TRUE)
   variances <- matrixStats::rowVars(normalized_counts)
   threshold <- stats::quantile(variances, q_filter)
   fil_count_mtrx <- count_matrix[variances >= threshold,]
   return(list(fil_count_mtrx = fil_count_mtrx, 
     variance_dis = variances, 
-     thr = q_filter))
+     thr = q_filter,
+     deseq2_normalized_counts = normalized_counts))
 }
 
 prepare_model_text <- function(model_variables, 
@@ -469,4 +515,73 @@ prepare_target_for_multifactorial <- function(target, multifactorial) {
                                              target[,mf_text[["mf_factorB"]]],
                                              mf_text[["mf_varB"]])
   return(target)
+}
+
+get_counts <- function(cnts_mtx, library_sizes)
+{
+    if (!is.null(library_sizes)){
+
+        total_counts <- library_sizes[, c("sample","initial_total_sequences")]
+        # Total reads might have been counted without taking into account ExpHunterSuite blacklist,
+        # which would lead to errors. This next line removes blacklisted samples from total reads table.
+        # Also, we have no guarantee they are sorted the same way, so we do it ourselves.
+        total_counts <- total_counts[match(colnames(cnts_mtx), total_counts$sample), ]
+        # sample_ID column no longer needed
+        total_counts <- total_counts$initial_total_sequences
+        gene_counts <- colSums(cnts_mtx)
+        counted_frac <- gene_counts/total_counts
+
+    } else {
+        total_counts <- colSums(cnts_mtx)
+        counted_frac <- NULL
+    }
+
+    coverage_df <- data.frame(sample_ID = colnames(cnts_mtx),
+                                total_counts = total_counts)
+    coverage_df$counted_frac <- counted_frac
+
+    coverage_df <- coverage_df[order(coverage_df$total_counts),]
+    coverage_df$sample_rank <- seq(1, nrow(coverage_df))
+
+    return(coverage_df)
+}
+
+get_mean_counts <- function(cnts_mtx, cpm_table, reads, minlibraries)
+{
+    passed_filter <- rowSums(cpm_table >= reads) >= minlibraries
+    min_1_read <- rowSums(cnts_mtx >= 1) >= minlibraries
+    min_10_reads <- rowSums(cnts_mtx >= 10) >= minlibraries
+
+    # Create a vector with the strictest filter passed
+    all <- data.frame(counts=rowMeans(cnts_mtx),
+                      filter=rep("all", nrow(cnts_mtx)))
+    min_1_read <- data.frame(counts=rowMeans(cnts_mtx[min_1_read,]),
+                              filter=rep("min_1_read", nrow(cnts_mtx[min_1_read,]))) 
+    min_10_reads <- data.frame(counts=rowMeans(cnts_mtx[min_10_reads,]),
+                              filter=rep("min_10_reads", nrow(cnts_mtx[min_10_reads,]))) 
+    passed_filter <- data.frame(counts=rowMeans(cnts_mtx[passed_filter,]),
+                                filter=rep("passed_filter", nrow(cnts_mtx[passed_filter,])))
+
+    res <- rbind(all,min_1_read,min_10_reads,passed_filter)
+    return(res)
+}
+
+get_gene_stats <- function(cpm_table, reads)
+{
+    cutoff_passed_matrix <- cpm_table >= reads
+    cutoff_passed_matrix <- cutoff_passed_matrix[rowSums(cutoff_passed_matrix) > 0, ]
+    exp_genes_df <- data.frame(sample_ID = colnames(cutoff_passed_matrix),
+                                expressed_genes = colSums(cutoff_passed_matrix))
+    exp_genes_df <- exp_genes_df[order(exp_genes_df$expressed_genes),]
+    exp_genes_df$count_rank <- seq(1,nrow(exp_genes_df))
+    cutoff_passed_matrix <- cutoff_passed_matrix[, exp_genes_df$sample_ID]
+    union_vec = inters_vec <- cutoff_passed_matrix[,1]
+    for (sample in 1:ncol(cutoff_passed_matrix))
+    {
+        union_vec <- union_vec | cutoff_passed_matrix[,sample]
+        inters_vec <- inters_vec & cutoff_passed_matrix[,sample]
+        exp_genes_df$union_expressed_genes[sample] <- sum(union_vec)
+        exp_genes_df$inters_expressed_genes[sample] <- sum(inters_vec)
+    }
+    return(exp_genes_df)
 }

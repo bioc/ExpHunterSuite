@@ -53,7 +53,7 @@ option_list <- list(
   optparse::make_option(c("-t", "--input_gene_id"), type="character", 
     default="E",
     help=paste0("Input gene IDs. Available IDs are: ENSEMBL (E), entrezgene",
-        " (e), TAIR/Arabidopsis (T), Gene Names (G). [Default:%default]")),          
+        " (e), TAIR/Arabidopsis (T), Gene Names (G), Gene Symbol (e.g. HGNC for human). [Default:%default]")),          
   optparse::make_option(c("-f", "--func_annot_db"), type="character", 
     default="gKR",
     help=paste0("Functional annotation database and enrichment method(s) to",
@@ -99,6 +99,8 @@ option_list <- list(
   optparse::make_option(c("-R", "--report_modes"), type="character", 
     default="fci",
     help="HTML report modes. 'f' for functional_report, 'c' for cluster_main_report and 'i' for individual module report. Default=%default"),
+  optparse::make_option(c("--corr_threshold"), type = "double", default = 0.8,
+     help = "Clusters with abslute correlation higher than this theshold are combined in clusters_main_report.html. Default: %default"), 
   optparse::make_option(c("-u", "--universe"), type="character", default=NULL, 
     help="Background genes for enrichment. Default all. Alternative = expressed"),
   optparse::make_option("--clean_parentals", type="logical", default=FALSE, 
@@ -160,6 +162,7 @@ if(opt$input_gene_id == "e") input_gene_id <- "ENTREZID"
 if(opt$input_gene_id == "E") input_gene_id <- "ENSEMBL"
 if(opt$input_gene_id == "T") input_gene_id <- "TAIR"
 if(opt$input_gene_id == "G") input_gene_id <- "GENENAME"
+if(opt$input_gene_id == "S") input_gene_id <- "SYMBOL"
 
 # Simplest option just to grow the vectors, given complexity of input arguments & interplay
 enrich_dbs <- vector()
@@ -213,6 +216,7 @@ func_results <- main_functional_hunter(
 )
 
 write_enrich_files(func_results, opt$output_files)
+
 write_functional_report(hunter_results = hunter_results, 
                             func_results = func_results, 
                             output_files = opt$output_files,
@@ -223,7 +227,9 @@ write_functional_report(hunter_results = hunter_results,
                             report = opt$report_modes,
                             showCategories = opt$showCategories,
                             max_genes = opt$max_genes_plot,
-                            group_results = opt$group_results
+                            group_results = opt$group_results,
+                            corr_threshold =opt$corr_threshold,
+                            pvalcutoff = opt$pthreshold
 )
 
 
