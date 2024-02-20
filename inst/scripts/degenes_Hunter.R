@@ -24,7 +24,7 @@ if( Sys.getenv('DEGHUNTER_MODE') == 'DEVELOPMENT' ){
   custom_libraries <- c('main_degenes_Hunter.R', 'io_handling.R', 
     'general_functions.R', 'dif_expression_packages.R', 
     'qc_and_benchmarking_functions.R', 'correlation_packages.R', 
-    'plotting_functions.R', 'write_report.R', "statistics_functions.R")
+    'plotting_functions.R', 'write_report.R', "statistics_functions.R", "factor_mining.R")
   for (lib in custom_libraries){
     source(file.path(root_path, 'R', lib))
   }
@@ -39,6 +39,9 @@ if( Sys.getenv('DEGHUNTER_MODE') == 'DEVELOPMENT' ){
 option_list <- list(
   optparse::make_option(c("-i", "--input_file"), type="character", default=NULL,
     help="Input file with read counts"),
+  optparse::make_option(c("--pseudocounts"), type="logical", default=FALSE, 
+    action = "store_true",
+    help="Use this option in case the mapping has been done with salmon, kallisto, StringTie or RSEM"),
   optparse::make_option(c("-C", "--Control_columns"), type="character", 
     default=NULL,
     help=paste0("Control columns. Please indicate column names of control",
@@ -97,7 +100,7 @@ option_list <- list(
     help=paste0("Variables to include in the model. Must be comma separated",
       " and each variable must be a column in the target_file")),
   optparse::make_option(c("-n", "--numerics_as_factors"), type="logical", 
-    default=TRUE,
+    default=FALSE,
     help=paste0("If TRUE, numeric variables in the target file specified",
       " in the DEG model be treated as distinct factors, i.e. categories.",
       " If FALSE, they will be considered as numeric and their values will be",
@@ -169,7 +172,11 @@ option_list <- list(
       "Alternatively, Contrast can be specificed in the form \"effect,baseA,groupB\", where the baseA should be the level in FactorA that should be used as the base for FC calculation, ",
       "and groupB represents the level in Factor B that is the group we are looking for the change in. For effect, FactorB can have more than 2 groups, allowing 2xn designs. ",
       "Finally, if nested is selected, we can perform the same comparisons using a nested design with: \"nested_int,Ctrl,groupA\" for interaction, ",
-      "\"nested_effect,Ctrl,groupA\" or \"nested_effect,Ctrl,groupB\" for a group. "))
+      "\"nested_effect,Ctrl,groupA\" or \"nested_effect,Ctrl,groupB\" for a group. ")),
+  optparse::make_option(c("-s", "--library_sizes"), type="character",
+    default=NULL, help="Path to file containing library sizes. If missing,
+      certain DROP QC plots will not be drawn, and sample ranks will be defined
+      by total counts.")
  )
 opt <- optparse::parse_args(optparse::OptionParser(option_list=option_list))
 #############################################################################
@@ -227,6 +234,10 @@ if (grepl("F", opt$modules)) {
   external_DEA_data <- read.table(opt$external_DEA_file,
    header=TRUE, sep="\t", row.names=1)
 }
+library_sizes <- opt$library_sizes
+if(! is.null(library_sizes)) {
+  library_sizes <- read.table(library_sizes, header=TRUE)
+}
 
 
 final_results <- main_degenes_Hunter(
@@ -236,6 +247,7 @@ final_results <- main_degenes_Hunter(
   external_DEA_data=external_DEA_data,
   output_files=opt$output_files,
   reads=opt$reads,
+  pseudocounts=opt$pseudocounts,
   minlibraries=opt$minlibraries,
   filter_type=opt$filter_type,
   p_val_cutoff=opt$p_val_cutoff,
@@ -259,23 +271,17 @@ final_results <- main_degenes_Hunter(
   WGCNA_minCoreKMESize=opt$WGCNA_minCoreKMESize,
   WGCNA_minKMEtoStay = opt$WGCNA_minKMEtoStay,
   WGCNA_corType = opt$WGCNA_corType,
-  multifactorial = opt$multifactorial
+  multifactorial = opt$multifactorial,
+  library_sizes=library_sizes
 )
 
 #############################################################################
 #WRITE OUTPUT
 ############################################################################
-write.table(final_results[['raw_filter']], 
-  file=file.path(opt$output_files, "filtered_count_data.txt"), quote=FALSE, 
-  col.names=NA, sep="\t")
-write.table(final_results[['sample_groups']], file=file.path(opt$output_files, 
-  "control_treatment.txt"), row.names=FALSE, quote=FALSE, sep="\t")
-write_df_list_as_tables(final_results[['all_data_normalized']], 
-  prefix = 'Normalized_counts_', root = opt$output_files)
-write_df_list_as_tables(final_results[['all_counts_for_plotting']], 
-  prefix = 'allgenes_', root = opt$output_files)
-dir.create(file.path(opt$output_files, "Common_results"))
-write.table(final_results[['DE_all_genes']], file=file.path(opt$output_files, 
-  "Common_results", "hunter_results_table.txt"), quote=FALSE, 
-row.names=TRUE, sep="\t")
-write_expression_report(final_results, opt$output_files, template_folder, opt)
+
+
+  write_expression_data(final_results, opt$output_files, template_folder, opt)
+
+  write_expression_report(final_results, opt$output_files, template_folder, opt)
+
+

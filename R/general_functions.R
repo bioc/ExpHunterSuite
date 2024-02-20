@@ -169,20 +169,20 @@ save_times <- function(time_control,
 #' @importFrom BiocParallel MulticoreParam bptry bplapply bpok
 parallel_list <- function(X, FUNC, workers=2, task_size=1, ...){
     log <- FALSE
+    main_log_path <- file.path(getwd(), 'bcplogs')
     log_path <- NA_character_
     workers <- workers - 1 # Reserve one core for main execution process
     if( workers == 0) workers <- 1
     if(workers > 1){
       timestamp <- as.integer(Sys.time())
-      log_path <- file.path(getwd(), 'bcplogs', as.character(timestamp))
+      log_path <- file.path(main_log_path, as.character(timestamp))
       if(file.exists(log_path)){
         timestamp = timestamp + 1
-        log_path <- file.path(getwd(), 'bcplogs', as.character(timestamp))
+        log_path <- file.path(main_log_path, as.character(timestamp))
       }
       log <- TRUE
       dir.create(log_path, recursive = TRUE)
     }
-    utils::str(log_path)
     param <- BiocParallel::MulticoreParam( 
       workers, tasks = ceiling(length(X)/task_size), stop.on.error = TRUE,
       log = log, threshold = "INFO", logdir = log_path
@@ -202,7 +202,10 @@ parallel_list <- function(X, FUNC, workers=2, task_size=1, ...){
       message(tail(attr(res[[fails[1]]], "traceback")))
       stop(paste('Parallel execution has failed at item', fails[1],
                  'and a total of', length(fails) , 'items have failed.'))
+    } else {
+      unlink(main_log_path, recursive = TRUE)
     }
+
     return(res)
 }
 
@@ -221,4 +224,49 @@ rand_sample_bool <- function(bool, sample_size){
 check_and_quit <- function(object){
   str(object)
   q()
+}
+
+
+#' @importFrom GenomicRanges makeGRangesFromDataFrame
+#' @importFrom annotatr annotate_regions build_annotations
+annotate_genomic_ranges <-function(intervals_df, genome){
+ g_regs <- GenomicRanges::makeGRangesFromDataFrame(intervals_df, keep.extra.columns = TRUE)
+ annots <- annotatr::build_annotations(genome = genome, annotations = paste0(genome,"_basicgenes"))
+ annotated_g_regs <- annotatr::annotate_regions(regions = g_regs,annotations = annots, ignore.strand = FALSE)
+ annotated_g_regs <- data.frame(annotated_g_regs)
+ annotated_g_regs <- annotated_g_regs[!is.na(annotated_g_regs$annot.symbol),]
+ return(annotated_g_regs)
+}    
+
+split_str <- function(string, split = NULL) {
+  if (is.null(split))
+    stop("split character must be specifyed")
+  if (is.null(string)) return(NULL)  
+  if (nchar(string) <= 1) return(NULL)  
+
+  splitted_str <- unlist(strsplit(string, split = split))
+  return(splitted_str)
+}
+
+merge_factors <- function(table, target, factors) {
+  if (length(factors) == 0 ) {
+    return(table)
+  }  
+
+  table <- merge(table, target[,factors, drop = FALSE], by = "row.names", all = TRUE)
+    row.names(table) <-  table[,"Row.names"]
+    table[,"Row.names"] <- NULL 
+    return(table)
+}
+
+remove_pattern_from_df <- function(dataframe, rgx){
+  df_parsed <- as.data.frame(lapply(dataframe,
+                    remove_text_from_column, 
+                    rgx = rgx))
+  return(df_parsed)
+}
+
+remove_text_from_column <- function(column, rgx) {
+  parsed_col <- gsub(rgx, "", column)
+  return(parsed_col)
 }

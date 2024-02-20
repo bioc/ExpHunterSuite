@@ -60,7 +60,6 @@ Suggests:
     PerformanceAnalytics,
     naivebayes,
     reshape2,
-    TCC,
     org.Hs.eg.db,
     org.Mm.eg.db,
     testthat (>= 3.0.0)
@@ -90,13 +89,14 @@ Imports:
     knitr,
     magrittr,
     SummarizedExperiment,
-    miRBaseConverter,
+    miRBaseVersions.db,
     grDevices,
     graphics,
     utils,
     BiocParallel,
     MKinfer,
     matrixStats,
+    ggupset,
     rlang,
     plyr,
     tidyr,
@@ -107,5 +107,12 @@ Imports:
     heatmaply,
     EnhancedVolcano, 
     ggrepel,
-    clusterProfiler
+    clusterProfiler,
+    GenomicRanges,
+    GenomicFeatures,
+    tximport,
+    annotatr,
+    ggridges,
+    FactoInvestigate,
+    FactoMineR
 Config/testthat/edition: 3

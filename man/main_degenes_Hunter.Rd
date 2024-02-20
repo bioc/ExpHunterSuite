@@ -6,6 +6,7 @@
 \usage{
 main_degenes_Hunter(
   raw = NULL,
+  pseudocounts = FALSE,
   target = NULL,
   count_var_quantile = 0,
   external_DEA_data = NULL,
@@ -19,8 +20,8 @@ main_degenes_Hunter(
   minpack_common = 4,
   model_variables = "",
   numerics_as_factors = TRUE,
-  string_factors = "",
-  numeric_factors = "",
+  string_factors = NULL,
+  numeric_factors = NULL,
   WGCNA_memory = 5000,
   WGCNA_norm_method = "DESeq2",
   WGCNA_deepsplit = 2,
@@ -34,11 +35,14 @@ main_degenes_Hunter(
   WGCNA_minCoreKMESize = NULL,
   WGCNA_minKMEtoStay = 0.2,
   WGCNA_corType = "pearson",
-  multifactorial = ""
+  multifactorial = "",
+  library_sizes = NULL
 )
 }
 \arguments{
 \item{raw}{Dataframe with raw counts per sample and feature}
+
+\item{pseudocounts}{boolean, activate if the input contains pseudocounts}
 
 \item{target}{set with control and treatment information}
 
@@ -99,6 +103,8 @@ a gene as significant}
 \item{WGCNA_corType}{see WGCNA package}
 
 \item{multifactorial}{specify interaction/effect when multifactorial design}
+
+\item{library_sizes}{NULL or a dataframe with sample names and library sizes}
 }
 \value{
 expression analysis result object with studies performed

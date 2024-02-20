@@ -26,6 +26,9 @@ option_list <- list(
     optparse::make_option(c("-d", "--databases"), type="character", 
         default="targetscan,mirdb,diana_microt,elmmo,microcosm,miranda,pictar,pita",
         help = "Set prediction databases included on multiMiR to use as gold standard."),
+     optparse::make_option(c("--add_databases"), type="character", 
+        default=NA,
+        help = "Comma sepparated files, containing 2 columns Genes\tmiRNA including additional databases. Default=%default."),
     optparse::make_option("--tag_filter target_tag,miRNA_tag", type="character", 
         default="putative,putative",
         help = "Set filter type for RNAseq and miRNAseq input data by comma separated string. 
@@ -42,13 +45,16 @@ option_list <- list(
         help= "Indicate .RData file with parsed multiMiR data."),
     optparse::make_option(c("-p", "--p_val_cutoff"), type="double", 
         default=0.05,
-        help="Correlation P value threshold . Default=%default"),
+        help="Correlation P value threshold. Default=%default"),
     optparse::make_option("--corr_type TYPE", type="character", 
         default="lower",
         help = "Set if correlations are [lower] or [higher] than the --p_val_cutoff. Default=%default"),
-    optparse::make_option(c("-c", "--corr_cutoff"), type="double", 
-        default=-0.7,
+    optparse::make_option(c("-c", "--corr_cutoffs"), type="character", 
+        default="-0.95,-0.9,-0.85,-0.8,-0.75,-0.7,-0.65,-0.6",
         help="Correlation threshold . Default=%default"),
+     optparse::make_option(c("-F", "--f_p_val"), type="double", 
+        default=0.05,
+        help="Fisher exact test P value threshold . Default=%default"),
     optparse::make_option(c("-s", "--sample_proportion"), type="double", 
         default=0.01,
         help="Score distribution sample proportion. Default=%default"),
@@ -89,6 +95,12 @@ option_list <- list(
                             miRNAs with Pvalue under threshold will be discarded.
                              Strategies without significant miRNAs will be discarded
                 Default=%default"),
+    optparse::make_option(c("--genomic_ranges"), type="character", 
+        default=NULL,
+        help = "Path to miRNA genomic ranges Default=%default"),
+    optparse::make_option(c("--genome_ref"), type="character", 
+        default="hg38",
+        help = "Names of the genome version Default=%default"),
     optparse::make_option(c("--mapping_output"), type="character", 
         default="Target_log2FC",
         help = "Select the output column to show in functional report: Predicted_DB_count, Validated_DB_count, Correlation, Target_log2FC, miRNA_log2FC. Default=%default"),
@@ -131,7 +143,11 @@ if( Sys.getenv('DEGHUNTER_MODE') == 'DEVELOPMENT' ){
 }
  
  #### NOTAS PARA EL SCRIPT
-
+#
+######################
+## ADD POSSITIVE CORRELATIONS
+#####################
+## ADD OR HEATMAP FOR MIRNA/STRATEGY/CORRELATION CUTOFF
 
 
 
@@ -149,7 +165,7 @@ if (exec_cormit){
         multimir_db=opt$multimir_db,
         sample_proportion = opt$sample_proportion,
         p_val_cutoff=opt$p_val_cutoff,
-        corr_cutoff=opt$corr_cutoff,
+        corr_cutoffs=opt$corr_cutoffs,
         MM_cutoff=opt$module_membership_cutoff,
         permutations = opt$permutations,
         report=opt$report,
@@ -157,6 +173,7 @@ if (exec_cormit){
         translate_ensembl = opt$translate_ensembl,  
         mc_cores = opt$mc_cores,
         tag_filter = opt$tag_filter,
+        f_p_val= opt$f_p_val,
         filter_db_theshold = opt$filter_db_theshold,
         database_to_filter = opt$database_to_filter,
         translation_file = opt$translation_file,
@@ -166,7 +183,8 @@ if (exec_cormit){
         selected_targets_file = opt$selected_targets,
         template_folder = template_folder,
         compare_pred_scores = opt$compare_pred_scores,
-        eval_method = opt$eval_method)
+        eval_method = opt$eval_method,
+        add_databases_files = opt$add_databases)
     miRNA_cor_results$all_pairs$RNAseq_mod <- miRNA_cor_results$RNAseq$DH_results[match(miRNA_cor_results$all_pairs$RNAseq, miRNA_cor_results$RNAseq$DH_results$gene_name),"Cluster_ID"]
 
     miRNA_cor_results$weighted_c_table <- NULL
@@ -186,12 +204,14 @@ miRNA_cor_results <- c(miRNA_cor_results,
     list(report_name =opt$report,
          template_folder =template_folder,
          output_files =normalizePath(opt$output_files),
-         p_val_cutoff =opt$p_val_cutoff,
-         corr_cutoff =opt$corr_cutoff,
-         eval_method = opt$eval_method,
-         sample_proportion =opt$sample_proportion,
+         #p_val_cutoff =opt$p_val_cutoff,
+         #corr_cutoff =opt$corr_cutoff,
+        # eval_method = opt$eval_method,
+         #sample_proportion =opt$sample_proportion,
+         genomic_ranges = opt$genomic_ranges,
+         genome_ref = opt$genome_ref,
          mapping_output = opt$mapping_output,
          output_pairs = opt$output_pairs))
+do.call("write_global_cormit", miRNA_cor_results)
 
-
-do.call("write_miRNA_cor_report", miRNA_cor_results)
+#do.call("write_miRNA_cor_report", miRNA_cor_results)
