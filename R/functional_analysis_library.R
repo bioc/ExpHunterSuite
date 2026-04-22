@@ -503,7 +503,7 @@ enrichKEGG_user_data <- function (
 #' @param readable Whether output should include gene symbols
 #' @param return_all Whether to remove list items with no enrichment
 #' @param ... other arguments passed to the enrichment function
-#' @importFrom DOSE setReadable
+#' @importFrom enrichit setReadable
 #' @export
 multienricher_ora <- function(all_funsys=NULL, genes_list, universe=NULL, 
   organism_info, org_db = NULL, task_size=1, workers=1, pvalueCutoff = 0.05, 
@@ -584,7 +584,7 @@ multienricher_ora <- function(all_funsys=NULL, genes_list, universe=NULL,
     if(readable == TRUE) {
       enriched_cats <- lapply(enriched_cats, function(x) { 
         if(! is.null(x)) return(
-          DOSE::setReadable(x, OrgDb = org_db, 
+          enrichit::setReadable(x, OrgDb = org_db, 
           keyType="ENTREZID")
           )
         else return(data.frame())

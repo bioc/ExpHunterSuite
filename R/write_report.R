@@ -10,8 +10,9 @@
 #' @importFrom rmarkdown render
 #' @examples
 #' # Load DE analysis results
-#' degh_output <- list() # data(degh_output)
-#' write_expression_report(degh_output)
+#' ## NOT RUN
+#' # degh_output <- list() # data(degh_output)
+#' # write_expression_report(degh_output)
 write_expression_report <- function(exp_results, 
     output_files=getwd(),
     template_folder = NULL, 

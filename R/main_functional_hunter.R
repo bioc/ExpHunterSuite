@@ -34,9 +34,10 @@
 #' @importFrom clusterProfiler merge_result
 #' @examples
 #' # Load DE analysis result
-#' data(degh_output)
-#' func_results <- main_functional_hunter(hunter_results = degh_output,
-#' model_organism = "Mouse", enrich_dbs = "MF")
+#' # NOT RUN
+#' # data(degh_output)
+#' # func_results <- main_functional_hunter(hunter_results = degh_output,
+#' # model_organism = "Mouse", enrich_dbs = "MF")
 main_functional_hunter <- function(
     hunter_results,
     model_organism,

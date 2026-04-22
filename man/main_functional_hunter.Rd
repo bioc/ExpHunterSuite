@@ -93,8 +93,9 @@ enrichment corpora.
 }
 \examples{
 # Load DE analysis result
-data(degh_output)
-func_results <- main_functional_hunter(hunter_results = degh_output,
-model_organism = "Mouse", enrich_dbs = "MF")
-}
+# data(degh_output)
+# NOT RUN
+# func_results <- main_functional_hunter(hunter_results = degh_output,
+# model_organism = "Mouse", enrich_dbs = "MF")
+# }
 \keyword{method}
