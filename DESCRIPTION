@@ -1,7 +1,7 @@
 Package: ExpHunterSuite
 Title: Package for the Comprehensive Analysis of Transcriptomic
     Data
-Version: 1.19.0
+Version: 1.19.1
 Author: James Perkins
 Maintainer: James Perkins <jimrperkins@gmail.com>
 Authors@R: c(
